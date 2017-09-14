@@ -336,11 +336,13 @@ CAMLprim value caml_sys_chdir(value dirname)
 CAMLprim value caml_sys_getcwd(value unit)
 {
   char buff[4096];
-#ifdef HAS_GETCWD
+#if defined(HAS_GETCWD)
   if (getcwd(buff, sizeof(buff)) == 0) caml_sys_error(NO_ARG);
-#else
+#elif defined(HAS_GETWD)
   if (getwd(buff) == 0) caml_sys_error(NO_ARG);
-#endif /* HAS_GETCWD */
+#else
+  caml_invalid_argument("Sys.getcwd not implemented");
+#endif /* HAS_GETCWD || HAS_GETWD */
   return caml_copy_string(buff);
 }
 

@@ -508,6 +508,9 @@ Working version
 - GPR#1073: Remove statically allocated compare stack.
   (Stephen Dolan)
 
+- GPR#1086: in Sys.getcwd, don't call getwd() if HAS_GETWD is not set
+  (report and first fix by Sebastian Markbåge, final fix by Xavier Leroy)
+
 - GPR#1269: Remove 50ms delay at exit for programs using threads
   (Valentin Gatien-Baron, review by Stephen Dolan)
 
