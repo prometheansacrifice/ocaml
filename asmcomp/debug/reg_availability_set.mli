@@ -2,10 +2,9 @@
 (*                                                                        *)
 (*                                 OCaml                                  *)
 (*                                                                        *)
-(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                  Mark Shinwell, Jane Street Europe                     *)
 (*                                                                        *)
-(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
-(*     en Automatique.                                                    *)
+(*   Copyright 2016--2017 Jane Street Group LLC                           *)
 (*                                                                        *)
 (*   All rights reserved.  This file is distributed under the terms of    *)
 (*   the GNU Lesser General Public License version 2.1, with the          *)
@@ -13,14 +12,26 @@
 (*                                                                        *)
 (**************************************************************************)
 
-(** Long identifiers, used in parsetree. *)
+(** Register availability sets. *)
 
 type t =
-    Lident of string
-  | Ldot of t * string
-  | Lapply of t * t
+  | Ok of Reg_with_debug_info.Set.t
+  | Unreachable
 
-val flatten: t -> string list
-val unflatten: string list -> t option
-val last: t -> string
-val parse: string -> t
+val inter : t -> t -> t
+(** Intersection of availabilities. *)
+
+val canonicalise : t -> t
+(** Return a subset of the given availability set which contains no registers
+    that are not associated with debug info (and holding values of
+    non-persistent identifiers); and where no two registers share the same
+    location. *)
+
+val equal : t -> t -> bool
+
+val print
+   : print_reg:(Format.formatter -> Reg.t -> unit)
+  -> Format.formatter
+  -> t
+  -> unit
+(** For debugging purposes only. *)
