@@ -320,11 +320,9 @@ CAMLprim value caml_sys_getcwd(value unit)
   charnat * ret;
 #ifdef HAS_GETCWD
   ret = _tgetcwd(buff, sizeof(buff)/sizeof(*buff));
-#elif defined(HAS_GETWD)
-  ret = getwd(buff);
 #else
   caml_invalid_argument("Sys.getcwd not implemented");
-#endif /* HAS_GETCWD || HAS_GETWD */
+#endif /* HAS_GETCWD */
   if (ret == 0) caml_sys_error(NO_ARG);
   return caml_copy_string_of_utf16(buff);
 }
