@@ -134,7 +134,6 @@ let compile_phrase ppf p =
   | Cfunction fd -> compile_fundecl ppf fd
   | Cdata dl -> Emit.data dl
 
-
 (* For the native toplevel: generates generic functions unless
    they are already available in the process *)
 let compile_genfuns ppf f =
@@ -159,13 +158,15 @@ let compile_unit _output_prefix asm_filename keep_asm
       if not keep_asm then remove_file asm_filename;
       raise exn
     end;
-    let assemble_result =
-      Profile.record "assemble"
-        (Proc.assemble_file asm_filename) obj_filename
-    in
-    if assemble_result <> 0
-    then raise(Error(Assembler_error asm_filename));
-    if create_asm && not keep_asm then remove_file asm_filename
+    if not !wasm then (
+      let assemble_result =
+        Profile.record "assemble"
+          (Proc.assemble_file asm_filename) obj_filename
+      in
+      if assemble_result <> 0
+      then raise(Error(Assembler_error asm_filename));
+      if create_asm && not keep_asm then remove_file asm_filename
+    )
   with exn ->
     remove_file obj_filename;
     raise exn
@@ -176,25 +177,32 @@ let set_export_info (ulambda, prealloc, structured_constants, export) =
 
 let end_gen_implementation ?toplevel ppf
     (clambda:clambda_and_constants) =
-  Emit.begin_assembly ();
-  clambda
-  ++ Profile.record "cmm" Cmmgen.compunit
-  ++ Profile.record "compile_phrases" (List.iter (compile_phrase ppf))
-  ++ (fun () -> ());
-  (match toplevel with None -> () | Some f -> compile_genfuns ppf f);
+  if !wasm then (
+    Emit.begin_assembly ();
+    clambda
+    ++ Profile.record "cmm" Cmmgen.compunit
+    ++ Profile.record "compile_phrases" (List.iter (Wasmgen.compile_wasm_phrase ppf))
+  ) else (
+    Emit.begin_assembly ();
+    clambda
+    ++ Profile.record "cmm" Cmmgen.compunit
+    ++ Profile.record "compile_phrases" (List.iter (compile_phrase ppf))
+    ++ (fun () -> ());
+    (match toplevel with None -> () | Some f -> compile_genfuns ppf f);
 
-  (* We add explicit references to external primitive symbols.  This
-     is to ensure that the object files that define these symbols,
-     when part of a C library, won't be discarded by the linker.
-     This is important if a module that uses such a symbol is later
-     dynlinked. *)
+    (* We add explicit references to external primitive symbols.  This
+       is to ensure that the object files that define these symbols,
+       when part of a C library, won't be discarded by the linker.
+       This is important if a module that uses such a symbol is later
+       dynlinked. *)
 
-  compile_phrase ppf
-    (Cmmgen.reference_symbols
-       (List.filter (fun s -> s <> "" && s.[0] <> '%')
-          (List.map Primitive.native_name !Translmod.primitive_declarations))
-    );
-  Emit.end_assembly ()
+    compile_phrase ppf
+      (Cmmgen.reference_symbols
+         (List.filter (fun s -> s <> "" && s.[0] <> '%')
+            (List.map Primitive.native_name !Translmod.primitive_declarations))
+      );
+    Emit.end_assembly ()
+  )
 
 let flambda_gen_implementation ?toplevel ~backend ppf
     (program:Flambda.program) =

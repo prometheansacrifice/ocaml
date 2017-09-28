@@ -49,6 +49,7 @@ let incompatible o =
   exit 2
 
 module Options = Main_args.Make_optcomp_options (struct
+  let _wasm = option "-wasm"
   let _a () = make_archive := true; option "-a" ()
   let _absname = option "-absname"
   let _afl_instrument = option "-afl-instrument"

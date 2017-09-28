@@ -56,7 +56,7 @@ CAMLC=$(CAMLRUN) boot/ocamlc -g -nostdlib -I boot -use-prims byterun/primitives
 CAMLOPT=$(CAMLRUN) ./ocamlopt -g -nostdlib -I stdlib -I otherlibs/dynlink
 ARCHES=amd64 i386 arm arm64 power s390x
 INCLUDES=-I utils -I parsing -I typing -I bytecomp -I middle_end \
-        -I middle_end/base_types -I asmcomp -I asmcomp/debug \
+        -I middle_end/base_types -I wasmcomp -I asmcomp -I asmcomp/debug \
         -I driver -I toplevel
 
 COMPFLAGS=-strict-sequence -principal -absname -w +a-4-9-41-42-44-45-48 \
@@ -184,8 +184,12 @@ ASMCOMP=\
   asmcomp/schedgen.cmo asmcomp/scheduling.cmo \
   asmcomp/branch_relaxation_intf.cmo \
   asmcomp/branch_relaxation.cmo \
-  asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
-  asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
+  asmcomp/emitaux.cmo asmcomp/emit.cmo \
+	wasmcomp/numeric_error.cmo wasmcomp/int.cmo wasmcomp/i32.cmo wasmcomp/i64.cmo \
+	wasmcomp/source.cmo wasmcomp/lib.cmo wasmcomp/wasm_types.cmo wasmcomp/float.cmo wasmcomp/f32.cmo wasmcomp/f64.cmo wasmcomp/values.cmo wasmcomp/ast.cmo \
+	wasmcomp/script.cmo wasmcomp/wasmgen.cmo \
+	asmcomp/asmgen.cmo \
+  asmcomp/asmlink.cmo wasmcomp/wasmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
 
 MIDDLE_END=\
@@ -1285,11 +1289,13 @@ beforedepend:: bytecomp/opcodes.ml
 
 partialclean::
 	for d in utils parsing typing bytecomp asmcomp middle_end \
-	         middle_end/base_types asmcomp/debug driver toplevel tools; do \
+	         middle_end/base_types asmcomp/debug wasmcomp driver toplevel tools; do \
 	  rm -f $$d/*.cm[ioxt] $$d/*.cmti $$d/*.annot $$d/*.$(S) \
 	    $$d/*.$(O) $$d/*.$(SO) $d/*~; \
 	done
 	rm -f *~
+
+
 
 .PHONY: depend
 depend: beforedepend

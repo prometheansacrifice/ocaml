@@ -45,6 +45,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let set r () = r := true
   let clear r () = r := false
 
+  let _wasm = set wasm
   let _a = set make_archive
   let _absname = set Location.absname
   let _afl_instrument = set afl_instrument
@@ -306,7 +307,11 @@ let main () =
           default_output !output_name
       in
       Compmisc.init_path true;
-      Asmlink.link ppf (get_objfiles ~with_ocamlparam:true) target;
+      let obj_files = get_objfiles ~with_ocamlparam:true in
+      if not !wasm then
+        Asmlink.link ppf obj_files target
+      else
+        Wasmlink.link ppf obj_files target;
       Warnings.check_fatal ();
     end;
   with x ->

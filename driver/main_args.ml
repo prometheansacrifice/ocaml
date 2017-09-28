@@ -135,6 +135,10 @@ let mk_inlining_report f =
       round) showing the inliner's decisions"
 ;;
 
+let mk_wasm f =
+  "-wasm", Arg.Unit f, " Output a webassembly binary file"
+;;
+
 let mk_dump_pass f =
   "-dump-pass", Arg.String f,
   Format.asprintf
@@ -966,6 +970,7 @@ module type Optcomp_options = sig
   val _afl_instrument : unit -> unit
   val _afl_inst_ratio : int -> unit
   val _dinterval : unit -> unit
+  val _wasm : unit -> unit
 end;;
 
 module type Opttop_options = sig
@@ -1285,6 +1290,7 @@ struct
     mk_dtimings F._dtimings;
     mk_dprofile F._dprofile;
     mk_dump_pass F._dump_pass;
+    mk_wasm F._wasm;
 
     mk_args F._args;
     mk_args0 F._args0;
