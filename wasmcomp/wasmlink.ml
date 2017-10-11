@@ -204,6 +204,7 @@ let scan_file obj_name tolink = match read_file obj_name with
 (* Second pass: generate the startup file and link it with everything else *)
 
 let make_startup_file ppf units_list =
+  print_endline "MAKE STARTUP FILE";
   let compile_wasm_phrase p = Wasmgen.compile_wasm_phrase ppf p in
   Location.input_name := "caml_startup"; (* set name of "current" input *)
   Compilenv.reset "_startup";
@@ -241,6 +242,7 @@ let make_startup_file ppf units_list =
   Emit.end_assembly ()
 
 let make_shared_startup_file ppf units =
+  print_endline "MAKE SHARED STARTUP FILE";
   let compile_wasm_phrase p = Wasmgen.compile_wasm_phrase ppf p in
   Location.input_name := "caml_startup";
   Compilenv.reset "_shared_startup";
@@ -286,12 +288,10 @@ let link_shared ppf objfiles output_name =
   )
 
 let call_linker file_list startup_file output_name =
-  print_endline "A1";
   let main_dll = !Clflags.output_c_object
                  && Filename.check_suffix output_name Config.ext_dll
   and main_obj_runtime = !Clflags.output_complete_object
   in
-  print_endline "A2";
   let files = startup_file :: (List.rev file_list) in
   let libunwind =
     if not Config.spacetime then []
@@ -350,6 +350,11 @@ let link ppf objfiles output_name =
       Asmgen.compile_unit output_name
         startup !Clflags.keep_startup_file startup_obj
         (fun () -> make_startup_file ppf units_tolink);
+      print_endline "";
+      let s = Encode.encode !Wasmgen.wasm_module in
+      let oc = open_out_bin "out.wasm" in
+      output_string oc s;
+      close_out oc;
       (*
         Ignore for now - maybe fix later???
 

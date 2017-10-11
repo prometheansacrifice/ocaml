@@ -1,0 +1,25 @@
+<html>
+  <head>
+    <title>wasm testing</title>
+  </head>
+  <body>
+  </body>
+  <script>
+  function fetchAndInstantiate(url, importObject) {
+    return fetch(url).then(response =>
+      response.arrayBuffer()
+    ).then(bytes =>
+      WebAssembly.instantiate(bytes, importObject)
+    ).then(results =>
+      results.instance
+    );
+  }
+// 1000 0000 1000 0000 0000 00001
+
+
+  fetchAndInstantiate("out.wasm").then(function(instance){
+    let val = instance.exports.camlTest__a_1002(2);
+    console.info('result from wasm:', val);
+  });
+  </script>
+</html>

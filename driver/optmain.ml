@@ -311,7 +311,8 @@ let main () =
       if not !wasm then
         Asmlink.link ppf obj_files target
       else
-        Wasmlink.link ppf obj_files target;
+        (print_endline ("Nr of obj_files:" ^ string_of_int (List.length obj_files));
+        Wasmlink.link ppf obj_files target);
       Warnings.check_fatal ();
     end;
   with x ->

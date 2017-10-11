@@ -66,12 +66,11 @@ type storeop = mem_size memop
 
 (* Expressions *)
 
-type var = int32 Source.phrase
-type literal = Values.value Source.phrase
+type var = int32
+type literal = Values.value
 type name = int list
 
-type instr = instr' Source.phrase
-and instr' =
+type instr =
   | Unreachable                       (* trap unconditionally *)
   | Nop                               (* do nothing *)
   | Block of stack_type * instr list  (* execute in sequence *)
@@ -104,18 +103,17 @@ and instr' =
 
 (* Globals & Functions *)
 
-type const = instr list Source.phrase
+type const = instr list
 
-type global = global' Source.phrase
-and global' =
+type global =
 {
   gtype : global_type;
   value : const;
 }
 
-type func = func' Source.phrase
-and func' =
+type func =
 {
+  name: string;
   ftype : var;
   locals : value_type list;
   body : instr list;
@@ -124,20 +122,17 @@ and func' =
 
 (* Tables & Memories *)
 
-type table = table' Source.phrase
-and table' =
+type table =
 {
   ttype : table_type;
 }
 
-type memory = memory' Source.phrase
-and memory' =
+type memory =
 {
   mtype : memory_type;
 }
 
-type 'data segment = 'data segment' Source.phrase
-and 'data segment' =
+type 'data segment =
 {
   index : var;
   offset : const;
@@ -150,39 +145,34 @@ type memory_segment = string segment
 
 (* Modules *)
 
-type type_ = func_type Source.phrase
+type type_ = func_type
 
-type export_desc = export_desc' Source.phrase
-and export_desc' =
+type export_desc =
   | FuncExport of var
   | TableExport of var
   | MemoryExport of var
   | GlobalExport of var
 
-type export = export' Source.phrase
-and export' =
+type export =
 {
   name : name;
   edesc : export_desc;
 }
 
-type import_desc = import_desc' Source.phrase
-and import_desc' =
+type import_desc =
   | FuncImport of var
   | TableImport of table_type
   | MemoryImport of memory_type
   | GlobalImport of global_type
 
-type import = import' Source.phrase
-and import' =
+type import =
 {
   module_name : name;
   item_name : name;
   idesc : import_desc;
 }
 
-type module_ = module_' Source.phrase
-and module_' =
+type module_ =
 {
   types : type_ list;
   globals : global list;
@@ -213,37 +203,35 @@ let empty_module =
   exports = [];
 }
 
-open Source
-
 let func_type_for (m : module_) (x : var) : func_type =
-  (Lib.List32.nth m.it.types x.it).it
+  (Lib.List32.nth m.types x)
 
 let import_type (m : module_) (im : import) : extern_type =
-  let {idesc; _} = im.it in
-  match idesc.it with
+  let {idesc; _} = im in
+  match idesc with
   | FuncImport x -> ExternFuncType (func_type_for m x)
   | TableImport t -> ExternTableType t
   | MemoryImport t -> ExternMemoryType t
   | GlobalImport t -> ExternGlobalType t
 
 let export_type (m : module_) (ex : export) : extern_type =
-  let {edesc; _} = ex.it in
-  let its = List.map (import_type m) m.it.imports in
+  let {edesc; _} = ex in
+  let its = List.map (import_type m) m.imports in
   let open Lib.List32 in
-  match edesc.it with
+  match edesc with
   | FuncExport x ->
     let fts =
-      funcs its @ List.map (fun f -> func_type_for m f.it.ftype) m.it.funcs
-    in ExternFuncType (nth fts x.it)
+      funcs its @ List.map (fun f -> func_type_for m f.ftype) m.funcs
+    in ExternFuncType (nth fts x)
   | TableExport x ->
-    let tts = tables its @ List.map (fun t -> t.it.ttype) m.it.tables in
-    ExternTableType (nth tts x.it)
+    let tts = tables its @ List.map (fun t -> t.ttype) m.tables in
+    ExternTableType (nth tts x)
   | MemoryExport x ->
-    let mts = memories its @ List.map (fun m -> m.it.mtype) m.it.memories in
-    ExternMemoryType (nth mts x.it)
+    let mts = memories its @ List.map (fun m -> m.mtype) m.memories in
+    ExternMemoryType (nth mts x)
   | GlobalExport x ->
-    let gts = globals its @ List.map (fun g -> g.it.gtype) m.it.globals in
-    ExternGlobalType (nth gts x.it)
+    let gts = globals its @ List.map (fun g -> g.gtype) m.globals in
+    ExternGlobalType (nth gts x)
 
 let string_of_name n =
   let b = Buffer.create 16 in
