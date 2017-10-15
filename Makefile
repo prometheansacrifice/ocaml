@@ -187,7 +187,7 @@ ASMCOMP=\
   asmcomp/emitaux.cmo asmcomp/emit.cmo \
 	wasmcomp/numeric_error.cmo wasmcomp/int.cmo wasmcomp/i32.cmo wasmcomp/i64.cmo \
 	wasmcomp/lib.cmo wasmcomp/wasm_types.cmo wasmcomp/float.cmo wasmcomp/f32.cmo wasmcomp/f64.cmo wasmcomp/values.cmo wasmcomp/ast.cmo \
-	wasmcomp/script.cmo wasmcomp/utf8.cmo wasmcomp/encode.cmo wasmcomp/print_wat.cmo wasmcomp/wasmgen.cmo \
+	wasmcomp/script.cmo wasmcomp/utf8.cmo wasmcomp/encode.cmo wasmcomp/sexpr.cmo wasmcomp/arrange.cmo wasmcomp/print_wat.cmo wasmcomp/wasmgen.cmo \
 	asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo wasmcomp/wasmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo

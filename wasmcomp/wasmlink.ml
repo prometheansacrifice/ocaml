@@ -351,10 +351,11 @@ let link ppf objfiles output_name =
         startup !Clflags.keep_startup_file startup_obj
         (fun () -> make_startup_file ppf units_tolink);
       print_endline "";
-      let s = Encode.encode !Wasmgen.wasm_module in
+      Print_wat.module_ stdout 80 !Wasmgen.wasm_module
+      (* let s = Encode.encode !Wasmgen.wasm_module in
       let oc = open_out_bin "out.wasm" in
       output_string oc s;
-      close_out oc;
+      close_out oc; *)
       (*
         Ignore for now - maybe fix later???
 

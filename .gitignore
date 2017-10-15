@@ -403,3 +403,5 @@ _ocamltest
 /yacc/ocamlyacc
 /yacc/version.h
 /yacc/.gdb_history
+
+a.out*

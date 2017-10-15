@@ -19,11 +19,11 @@ type types = {space : space; mutable list : type_ list}
 let empty_types () = {space = empty (); list = []}
 
 type context =
-  { types : types; tables : space; memories : space;
+  { data: space; types : types; tables : space; memories : space;
     funcs : space; locals : space; globals : space; labels : int32 VarMap.t }
 
 let empty_context () =
-  { types = empty_types (); tables = empty (); memories = empty ();
+  { data = empty(); types = empty_types (); tables = empty (); memories = empty ();
     funcs = empty (); locals = empty (); globals = empty ();
     labels = VarMap.empty }
 
@@ -40,7 +40,7 @@ let lookup category space x =
    - if symbol doesnt exist create it
  *)
 let type_ (c : context) x = lookup "type" c.types.space x
-
+let data (c : context) x = lookup "data" c.data x
 let local (c : context) x = lookup "local" c.locals x
 let global (c : context) x = lookup "global" c.globals x
 let table (c : context) x = lookup "table" c.tables x
@@ -77,6 +77,18 @@ let bind_type (c : context) x ty =
   bind "type" c.types.space x
 let bind_func (c : context) x = bind "function" c.funcs x
 let bind_local (c : context) x = bind "local" c.locals x
+let bind_data (c : context) x i = (
+  let space = c.data in
+  if VarMap.mem x space.map then
+    failwith ("Duplicate:" ^ x);
+    (* error x.at ("duplicate " ^ category ^ " " ^ x.it); *)
+  space.map <- VarMap.add x i space.map;
+  space.count <- Int32.add space.count 1l;
+  if space.count = 0l then
+    failwith "Too many bindings";
+    (* error x.at ("too many " ^ category ^ " bindings"); *)
+  i
+)
 let bind_global (c : context) x = bind "global" c.globals x
 let bind_table (c : context) x = bind "table" c.tables x
 let bind_memory (c : context) x = bind "memory" c.memories x
@@ -106,6 +118,8 @@ let memory_chunk_to_string = function
   | Double -> "Double"
   | Double_u -> "Double_u"
 
+let locals = ref []
+
 let rec to_operations context (expression_list:expression list) operation =
   match operation, expression_list with
   | Capply _, _ -> print_endline "This capply not handled apparently *SHAME*"; []
@@ -114,7 +128,7 @@ let rec to_operations context (expression_list:expression list) operation =
       let align = 0 in
       let offset = 0l in
       (* let expression_list = List.map (fun f -> emit_expr context f) expression_list in *)
-      let load_instr = Ast.Types.(match memory_chunk with
+      let instr = Ast.Types.(match memory_chunk with
       | Byte_unsigned -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)}
       | Byte_signed -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
       | Sixteen_unsigned -> Load {ty = I32Type; align; offset; sz = Some (Mem16, ZX)}
@@ -128,12 +142,27 @@ let rec to_operations context (expression_list:expression list) operation =
       (* | Double -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
       | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
-      [load_instr]
+      let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
+      expression_list @ [instr]
     )
   | Calloc, _ -> print_endline "Ask our GC friend for memory"; []
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
-    print_endline "Cstore something... OR NOT";
-    []
+    let align = 0 in
+    let offset = 0l in
+    let instr = Ast.Types.(match memory_chunk with
+    | Byte_unsigned -> Store {ty = I32Type; align; offset; sz = Some Mem8}
+    | Byte_signed -> Store {ty = I32Type; align; offset; sz = Some Mem8}
+    | Sixteen_unsigned -> Store {ty = I32Type; align; offset; sz = Some Mem16}
+    | Sixteen_signed -> Store {ty = I32Type; align; offset; sz = Some Mem16}
+    | Thirtytwo_unsigned -> Store {ty = I32Type; align; offset; sz = None}
+    | Thirtytwo_signed -> Store {ty = I32Type; align; offset; sz = None}
+    | Word_int -> Store {ty = I32Type; align; offset; sz = None}
+    | Word_val -> Store {ty = I32Type; align; offset; sz = None}
+    | Single -> Store {ty = I32Type; align; offset; sz = None}
+    | _ -> failwith "Not supported yet I guess")
+    in
+    let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
+    expression_list @ [instr]
   | Caddi, [fst; snd] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
@@ -199,7 +228,7 @@ let rec to_operations context (expression_list:expression list) operation =
      (emit_expr context snd) @
      [Compare (I32 I32Op.GeS)]
   | Caddv, _ -> failwith "caddv" (* pointer addition that produces a [Val] (well-formed Caml value) *)
-  | Cadda, _ ->  failwith "cadda" (* pointer addition that produces a [Addr] (derived heap pointer) *)
+  | Cadda, _ ->  print_endline "TODO:cadda"; [] (* pointer addition that produces a [Addr] (derived heap pointer) *)
   | Ccmpa _, _ -> failwith "Ccmpa"
   | Cnegf, [fst] ->
     (emit_expr context fst) @
@@ -249,17 +278,48 @@ and emit_expr context (expression:expression) =
   | Cconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cconst_float s -> [Const (F64 (F64.of_float s))]
   | Cconst_symbol symbol ->
-    [Call (func context symbol)]
+    (try
+      let res = local context symbol in
+      [Call res]
+    with
+    | _ -> try
+      [Call (global context symbol)]
+    with
+    | _ -> try
+      [Call (func context symbol)]
+    with
+    | _ -> try
+      let res = data context symbol in
+      [Const (I32 res)]
+    with
+    | _ -> print_endline ("Not found symbol:" ^ symbol); [])
   | Cconst_pointer i -> print_endline ("Not handled yet POINTER: " ^ string_of_int i); []
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
   | Cblockheader  _ -> failwith "Cblockheader"
   | Cvar ident ->
-    (* print_endline ("Getting:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp); *)
-    let var = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
-    [GetLocal var]
+    print_endline ("Getting:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp);
+    (try (
+      let var = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
+      print_endline "A var local";
+      [GetLocal var]
+    )
+    with
+    | _ -> (
+      print_endline "yikes...";
+      []
+    ))
   | Clet (ident, arg, fn_body) -> (
-    let let_id = func context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
-    emit_expr context arg
+    locals := !locals @ [Types.I32Type];
+    let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
+    print_endline ("let id:" ^ Int32.to_string let_id);
+    let result = emit_expr context arg in
+    let result = if result = [] then (
+      print_endline "temporary solution...";
+    [Const (I32 (I32.of_int_s 0))]
+    )
+    else result
+    in
+    result
     @
     [SetLocal let_id]
     @
@@ -268,9 +328,13 @@ and emit_expr context (expression:expression) =
   | Cassign _ -> failwith "Cassign"
   | Ctuple  _ -> failwith "Ctuple"
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (
+    try (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
       expression_list @
-      [Call (func context hd)]
+      [Call (func context hd)] )
+      with | _ ->
+      print_endline "Apply: Something did go wrong here...";
+      []
     )
   | Cop (operation, expression_list, _) -> to_operations context expression_list operation
   | Csequence (expression1, expression2) -> (emit_expr context expression1) @ (emit_expr context expression2)
@@ -294,7 +358,9 @@ let wasm_module = ref {
   types = [];
   globals = [];
   tables = [];
-  memories = [];
+  memories = Types.[{
+    mtype = MemoryType {min = 0l; max = Some 100l}
+  }];
   funcs = [];
   start = None;
   elems = [];
@@ -307,27 +373,53 @@ let name s =
   try Utf8.decode s with Utf8.Utf8 ->
     failwith "invalid UTF-8 encoding"
 
+let escape_int i size =
+  let str =
+    match size with
+    | 8 -> Printf.sprintf "%02X" i
+    | 16 -> Printf.sprintf "%04X" i
+    | 32 -> Printf.sprintf "%08X" i
+    | _ -> failwith "Not supported escape int size"
+  in
+  let result = ref "" in
+  for i = 0 to (String.length str / 2 - 1) do
+  	let startPos = (String.length str - i * 2 - 2) in
+	result := !result ^ "\\" ^ (String.sub str startPos 2);
+    ()
+  done;
+  !result
+;;
+
+let global_offset = ref 0
+
 let compile_wasm_phrase ppf p =
   ignore(ppf);
   match p with
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
     let context = enter_func context in
+    locals := [];
+    let args = ref [] in
     List.iter (fun (ident, _) ->
-      ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp))
+      ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
+      args := [Types.I32Type] @ !args;
     ) fun_args;
+
+
     let var = bind_func context fun_name in
     print_endline ("Function id:" ^ (Int32.to_string var));
+    let body = emit_expr context fun_body in
+    let return_type = [Types.I32Type] in
     let result = {
       name = fun_name;
       ftype = var;
-      locals = [];
-      body = emit_expr context fun_body;
+      locals = !locals;
+      body;
     } in
     let export = {
       name = name fun_name;
       edesc = FuncExport var;
     } in
-    let type_ = Types.FuncType ([], []) in
+    let type_ = Types.FuncType (!args, return_type) in
     let w = !wasm_module in
     wasm_module := Ast.{w with funcs = w.funcs @ [result]};
     let w = !wasm_module in
@@ -336,22 +428,58 @@ let compile_wasm_phrase ppf p =
     wasm_module := Ast.{w with exports = w.exports @ [export]};
     (* print_endline (Print_wat.print_func result); *)
     ())
-  | Cdata dl -> ignore(List.map (
-    (* first is module exports ?! *)
-    (* second is gc roots ?! *)
-    function
-      | Cglobal_symbol s -> print_string ("global: " ^ s); []
-      | Csymbol_address s -> print_string ("csymbol: " ^ s); []
-      | Cdefine_symbol s ->  print_string (" define_symbol: " ^ s); [] (* create a value in the current scope set-local foo address *)
-      | Cint8 i -> print_string (" Cint " ^ string_of_int i); []
-      | Cint16 i -> print_string (" Cint16 " ^ string_of_int i); []
-      | Cint32 ni ->
-        [Const (I32 (Nativeint.to_int32 ni));
-        Store {ty = Ast.Types.I32Type; align = 0; offset = (I32.of_int_s 0); sz = Some Mem32}]
-      | Cint i -> print_string (" Cint " ^ Nativeint.to_string i); []
-      | Csingle s -> print_string (" Csingle " ^ string_of_float s); []
-      | Cdouble d -> print_string (" Cdouble " ^ string_of_float d); []
-      | Cstring s -> print_string (" Cstring " ^ s); []
-      | Cskip i -> print_string (" Cskip " ^ string_of_int i); []
-      | Calign i ->  print_string (" Calign " ^ string_of_int i); []
-    ) dl)
+  | Cdata dl -> (
+    let datastring = ref "" in
+    let start_offset = !global_offset in
+    let data_id = ref 0l in
+    let offset = ref 0 in
+    List.iter (function
+      | Cglobal_symbol s -> print_string ("global: " ^ s); ()
+      | Csymbol_address s -> (
+        (* either a func *)
+        (* either a global *)
+        (* either some memory address *)
+
+        )
+      | Cdefine_symbol s ->  (
+          data_id := bind_data context s (I32.of_int_u start_offset)
+        )
+      | Cint8 i -> (
+          datastring := !datastring ^ escape_int i 8;
+          offset := !offset + 1;
+          ()
+        )
+      | Cint16 i -> (
+          datastring := !datastring ^ escape_int i 16;
+          offset := !offset + 2;
+          ()
+        )
+      | Cint32 ni -> (
+          datastring := !datastring ^ escape_int (Nativeint.to_int ni) 32;
+          offset := !offset + 4;
+          ()
+        )
+      | Cint ni -> (
+          datastring := !datastring ^ escape_int (Nativeint.to_int ni) 32;
+          offset := !offset + 4;
+          ()
+        )
+      | Csingle s -> print_string (" Csingle " ^ string_of_float s); ()
+      | Cdouble d -> print_string (" Cdouble " ^ string_of_float d); ()
+      | Cstring s -> (
+          datastring := s;
+          offset := !offset + 4;
+          ()
+        )
+      | Cskip i -> print_string (" Cskip " ^ string_of_int i); ()
+      | Calign i ->  print_string (" Calign " ^ string_of_int i); ()
+    ) dl;
+    let w = !wasm_module in
+    print_endline ("datastring:" ^ !datastring);
+    wasm_module := Ast.{w with data = w.data @ [{
+      index =  0l;
+      offset = [Const (I32 (I32.of_int_s start_offset))];
+      init = !datastring
+    }]};
+    global_offset := !global_offset + !offset;
+    )
