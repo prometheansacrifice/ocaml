@@ -2,6 +2,10 @@
 (* open Clflags *)
 [@@@ocaml.warning "-20-27"]
 
+
+(* let calling_conventions = what location is the val *)
+
+
 open Cmm
 
 module Types = Wasm_types
@@ -120,7 +124,10 @@ let memory_chunk_to_string = function
 
 let locals = ref []
 
+let return_type = ref []
+
 let rec to_operations context (expression_list:expression list) operation =
+  return_type := [];
   match operation, expression_list with
   | Capply _, _ -> print_endline "This capply not handled apparently *SHAME*"; []
   | Cextcall _, _ -> failwith "Cextcall"
@@ -143,9 +150,36 @@ let rec to_operations context (expression_list:expression list) operation =
       | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
+      print_endline ("Nr of expressions:" ^ string_of_int (List.length expression_list));
+      return_type := [Types.I32Type];
       expression_list @ [instr]
     )
-  | Calloc, _ -> print_endline "Ask our GC friend for memory"; []
+  | Calloc, _ -> (
+      return_type := [Types.I32Type];
+      let local_ = bind_local context "allocate_memory_pointer" in
+      let (size, calls) = List.fold_left (fun lst f -> match f with
+        | Cconst_int _
+        | Cconst_natint _
+        | Cconst_symbol _
+        | Cblockheader _
+        | Cvar _
+        | Cconst_float _ ->
+          let (a, b) = lst in
+          (a + 4, b @ [GetLocal local_; Const (I32 (I32.of_int_s a)); Binary (I32 I32Op.Add)] @ emit_expr context f @ [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
+        | _ -> print_endline "SIZE: not supported yet..."; lst
+        ) (0, []) expression_list
+      in
+      locals := !locals @ [Types.I32Type];
+      [Const (I32 (I32.of_int_s size));
+       Call (func context "allocate_memory");
+       SetLocal local_
+
+      ]
+      @
+      calls
+      @
+      [GetLocal local_]
+    )
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
     let align = 0 in
     let offset = 0l in
@@ -162,100 +196,125 @@ let rec to_operations context (expression_list:expression list) operation =
     | _ -> failwith "Not supported yet I guess")
     in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
+    return_type := [];
     expression_list @ [instr]
+  | Cadda, [fst; snd]
   | Caddi, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Add)]
   | Csubi, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Sub)]
   | Cmuli, [fst; snd]
   | Cmulhi, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Mul)]
   | Cdivi, [fst; snd]
   | Cmodi, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.DivS)]
   | Cand, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.And)]
   | Cor, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Or)]
   | Cxor, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Xor)]
   | Clsl, [fst] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.Shl)]
   | Clsr, [fst] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.ShrU)]
   | Casr, [fst] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.ShrS)]
   | Ccmpi Ceq, [fst; snd] ->
-    print_endline "Ceq test...";
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Eq)]
   | Ccmpi Cne, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Ne)]
   | Ccmpi Clt, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LtS)]
   | Ccmpi Cle, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LeS)]
   | Ccmpi Cgt, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GtS)]
   | Ccmpi Cge, [fst; snd] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GeS)]
   | Caddv, _ -> failwith "caddv" (* pointer addition that produces a [Val] (well-formed Caml value) *)
-  | Cadda, _ ->  print_endline "TODO:cadda"; [] (* pointer addition that produces a [Addr] (derived heap pointer) *)
+  (* pointer addition that produces a [Addr] (derived heap pointer) *)
   | Ccmpa _, _ -> failwith "Ccmpa"
   | Cnegf, [fst] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Unary (F32 F32Op.Neg)]
   | Cabsf, [fst] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Unary (F32 F32Op.Abs)]
   | Caddf, [fst; snd] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Add)]
   | Csubf, [fst; snd] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Sub)]
   | Cmulf, [fst; snd] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Mul)]
   | Cdivf, [fst; snd] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Div)]
   | Cfloatofint, [fst] ->
+    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Convert (F32 F32Op.ReinterpretInt)]
   | Cintoffloat, [fst] ->
+    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Convert (I32 I32Op.ReinterpretFloat)]
   | Ccmpf Ceq, [fst; snd] -> failwith "Ccmpf"
@@ -274,9 +333,9 @@ let rec to_operations context (expression_list:expression list) operation =
   | _ -> failwith ("Something is not handled here:" ^ string_of_int (List.length expression_list))
 and emit_expr context (expression:expression) =
   match expression with
-  | Cconst_int i -> [Const (I32 (I32.of_int_s i))]
-  | Cconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cconst_float s -> [Const (F64 (F64.of_float s))]
+  | Cconst_int i -> return_type := [Types.I32Type]; [Const (I32 (I32.of_int_s i))]
+  | Cconst_natint i -> return_type := [Types.I32Type]; [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cconst_float s -> return_type := [Types.F32Type]; [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
     (try
       let res = local context symbol in
@@ -292,11 +351,14 @@ and emit_expr context (expression:expression) =
       let res = data context symbol in
       [Const (I32 res)]
     with
-    | _ -> print_endline ("Not found symbol:" ^ symbol); [])
+    | _ ->
+      [Const (I32 (bind_func context symbol))])
+    (* print_endline ("Not found symbol:" ^ symbol); []) *)
   | Cconst_pointer i -> print_endline ("Not handled yet POINTER: " ^ string_of_int i); []
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
-  | Cblockheader  _ -> failwith "Cblockheader"
+  | Cblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
+    return_type := [Types.I32Type];
     print_endline ("Getting:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp);
     (try (
       let var = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
@@ -310,6 +372,7 @@ and emit_expr context (expression:expression) =
     ))
   | Clet (ident, arg, fn_body) -> (
     locals := !locals @ [Types.I32Type];
+    return_type := [Types.I32Type];
     let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
     print_endline ("let id:" ^ Int32.to_string let_id);
     let result = emit_expr context arg in
@@ -354,6 +417,8 @@ and emit_expr context (expression:expression) =
   | Cexit  _ -> failwith "Cexit"
   | Ctrywith  _ -> failwith "Ctrywith"
 
+let global_id = bind_global context "global_offset"
+
 let wasm_module = ref {
   types = [];
   globals = [];
@@ -368,6 +433,39 @@ let wasm_module = ref {
   imports = [];
   exports = [];
 }
+
+let setup_helper_functions () = (
+  let globals = [{
+    gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
+    value = [Const (I32 (I32.of_int_s 0))] (* TODO: update this location with all the other thingies properly... *)
+  }]
+  in
+  ignore(bind_global context "global_memory_offset");
+  let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
+  let types = [type_] in
+  ignore(bind_type context "allocate_memory" type_);
+  let funcs = [{
+    name = "allocate_memory";
+    ftype = 0l;
+    locals = [Types.I32Type];
+    body = [
+      GetGlobal 0l;
+      TeeLocal 1l;
+      GetLocal 0l;
+      Binary (I32 I32Op.Add);
+      SetGlobal 0l;
+      GetLocal 1l;
+    ]
+  }]
+  in
+  ignore(bind_func context "allocate_memory");
+  let w = !wasm_module in
+  wasm_module := Ast.{w with funcs = funcs;
+              globals = globals;
+              types = types};
+)
+
+
 
 let name s =
   try Utf8.decode s with Utf8.Utf8 ->
@@ -398,28 +496,35 @@ let compile_wasm_phrase ppf p =
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
     let context = enter_func context in
     locals := [];
+    return_type := [];
     let args = ref [] in
     List.iter (fun (ident, _) ->
+      print_endline ("FUNC:" ^ fun_name  ^ "." ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       args := [Types.I32Type] @ !args;
     ) fun_args;
-
-
-    let var = bind_func context fun_name in
-    print_endline ("Function id:" ^ (Int32.to_string var));
+    let func_id = try (
+      bind_func context fun_name
+    ) with
+    | _ ->
+      func context fun_name
+    in
     let body = emit_expr context fun_body in
-    let return_type = [Types.I32Type] in
+    let type_ = Types.FuncType (!args, !return_type) in
+    let ftype = bind_type context fun_name type_ in
+    print_endline ("Function id:" ^ (Int32.to_string ftype));
+
     let result = {
       name = fun_name;
-      ftype = var;
+      ftype;
       locals = !locals;
       body;
     } in
     let export = {
       name = name fun_name;
-      edesc = FuncExport var;
+      edesc = FuncExport func_id;
     } in
-    let type_ = Types.FuncType (!args, return_type) in
+
     let w = !wasm_module in
     wasm_module := Ast.{w with funcs = w.funcs @ [result]};
     let w = !wasm_module in

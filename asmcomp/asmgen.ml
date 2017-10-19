@@ -178,7 +178,9 @@ let set_export_info (ulambda, prealloc, structured_constants, export) =
 let end_gen_implementation ?toplevel ppf
     (clambda:clambda_and_constants) =
   if !wasm then (
+
     Emit.begin_assembly ();
+    Wasmgen.setup_helper_functions ();
     clambda
     ++ Profile.record "cmm" Cmmgen.compunit
     ++ Profile.record "compile_phrases" (List.iter (Wasmgen.compile_wasm_phrase ppf))
