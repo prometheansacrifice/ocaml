@@ -1,19 +1,26 @@
-(* open Format *)
-(* open Clflags *)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*                             Sander Spies                               *)
+(*                                                                        *)
+(*   Copyright 2017 -                                                     *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
+
+(* From cmm to webassembly bytecode *)
+
 [@@@ocaml.warning "-20-27"]
 
-
-(* let calling_conventions = what location is the val *)
-
-
 open Cmm
-
-module Types = Wasm_types
 open Ast
-module Script = Script
 open Values
+open Wasm_types
 
-(* add the VarMap stuff from wasm's parser.mly *)
 module VarMap = Map.Make(String)
 
 type space = {mutable map : int32 VarMap.t; mutable count : int32}
@@ -31,18 +38,9 @@ let empty_context () =
     funcs = empty (); locals = empty (); globals = empty ();
     labels = VarMap.empty }
 
-let enter_func (c : context) =
-  {c with labels = VarMap.empty; locals = empty ()}
-
 let lookup category space x =
   VarMap.find x space.map
-    (* error x.at ("unknown " ^ category ^ " " ^ x.it) *)
 
-
-(* TODO refactor to `let symbol ...`:
-   - remove all other options (not directly but later?)
-   - if symbol doesnt exist create it
- *)
 let type_ (c : context) x = lookup "type" c.types.space x
 let data (c : context) x = lookup "data" c.data x
 let local (c : context) x = lookup "local" c.locals x
@@ -53,27 +51,22 @@ let label (c : context) x =
   try VarMap.find x c.labels
   with Not_found ->
     failwith ("Not_found: " ^ x)
-    (* error x.at ("unknown label " ^ x.it) *)
-
 
 let func_type (c : context) x =
   try (Lib.List32.nth c.types.list x)
   with Failure _ ->
     failwith "Failure"
-    (* error x.at ("unknown type " ^ Int32.to_string x) *)
 
 let context = empty_context ()
 
 let bind category space x =
   if VarMap.mem x space.map then
     failwith ("Duplicate:" ^ x);
-    (* error x.at ("duplicate " ^ category ^ " " ^ x.it); *)
   let i = space.count in
   space.map <- VarMap.add x space.count space.map;
   space.count <- Int32.add space.count 1l;
   if space.count = 0l then
     failwith "Too many bindings";
-    (* error x.at ("too many " ^ category ^ " bindings"); *)
   i
 
 let bind_type (c : context) x ty =
@@ -99,42 +92,75 @@ let bind_memory (c : context) x = bind "memory" c.memories x
 let bind_label (c : context) x =
   {c with labels = VarMap.add x 0l (VarMap.map (Int32.add 1l) c.labels)}
 
-let to_func_type fun_args = (
-  print_endline "todo"
-)
-
 let func (c : context) x =
   try
     lookup "function" c.funcs x
   with
     | Not_found -> failwith ("Not found function:" ^ x)
 
-let memory_chunk_to_string = function
-  | Byte_unsigned -> "Byte_unsigned"
-  | Byte_signed -> "Byte_signed"
-  | Sixteen_unsigned -> "Sixteen_unsigned"
-  | Sixteen_signed -> "Sixteen_signed"
-  | Thirtytwo_unsigned -> "Thirtytwo_unsigned"
-  | Thirtytwo_signed -> "Thirtytwo_signed"
-  | Word_int -> "Word_int"
-  | Word_val -> "Word_val"
-  | Single -> "Single"
-  | Double -> "Double"
-  | Double_u -> "Double_u"
+let current_locals = ref []
+let current_return_type = ref []
 
-let locals = ref []
+let enter_func (c : context) = (
+  current_locals := [];
+  current_return_type := [];
+  {c with labels = VarMap.empty; locals = empty ()}
+)
 
-let return_type = ref []
+let unique_name_counter = ref 0
+
+let global_id = bind_global context "global_offset"
+
+let wasm_module = ref {
+  types = [];
+  globals = [];
+  tables = Types.[{
+    ttype = TableType ({min = 0l; max = Some 0l}, AnyFuncType)
+  }];
+  memories = Types.[{
+    mtype = MemoryType {min = 100l; max = Some 100l}
+  }];
+  funcs = [];
+  start = None;
+  elems = [];
+  data = [];
+  imports = [];
+  exports = [];
+}
+
+let oper_result_type = function
+  | Capply ty -> [I32Type]
+  | Cextcall(_s, ty, _alloc, _) -> [I32Type]
+  | Cload (c, _) ->
+    begin match c with
+    | Word_val -> [I32Type]
+    | Single | Double | Double_u -> [F32Type]
+    | _ -> [I32Type]
+    end
+  | Calloc -> [I32Type]
+  | Cstore (_c, _) -> []
+  | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi |
+  Cand | Cor | Cxor | Clsl | Clsr | Casr |
+  Ccmpi _ | Ccmpa _ | Ccmpf _ -> [I32Type]
+  | Caddv -> [I32Type]
+  | Cadda -> [I32Type]
+  | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> [F32Type]
+  | Cfloatofint -> [F32Type]
+  | Cintoffloat -> [I32Type]
+  | Craise _ -> []
+  | Ccheckbound -> []
 
 let rec to_operations context (expression_list:expression list) operation =
-  return_type := [];
+  current_return_type := oper_result_type operation;
   match operation, expression_list with
-  | Capply _, _ -> print_endline "This capply not handled apparently *SHAME*"; []
+  | Capply _, _ -> (
+    print_endline "!!! This apply is not handled correctly !!!";
+    []
+    )
   | Cextcall _, _ -> failwith "Cextcall"
   | Cload (memory_chunk, mutable_flag), _ -> (
       let align = 0 in
       let offset = 0l in
-      (* let expression_list = List.map (fun f -> emit_expr context f) expression_list in *)
       let instr = Ast.Types.(match memory_chunk with
       | Byte_unsigned -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)}
       | Byte_signed -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
@@ -150,12 +176,11 @@ let rec to_operations context (expression_list:expression list) operation =
       | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
-      print_endline ("Nr of expressions:" ^ string_of_int (List.length expression_list));
-      return_type := [Types.I32Type];
+      (* let var = bind_local context "load_instr" in *)
       expression_list @ [instr]
+      (* @ [TeeLocal var] *)
     )
   | Calloc, _ -> (
-      return_type := [Types.I32Type];
       let local_ = bind_local context "allocate_memory_pointer" in
       let (size, calls) = List.fold_left (fun lst f -> match f with
         | Cconst_int _
@@ -169,11 +194,10 @@ let rec to_operations context (expression_list:expression list) operation =
         | _ -> print_endline "SIZE: not supported yet..."; lst
         ) (0, []) expression_list
       in
-      locals := !locals @ [Types.I32Type];
+      current_locals := !current_locals @ [Types.I32Type];
       [Const (I32 (I32.of_int_s size));
        Call (func context "allocate_memory");
        SetLocal local_
-
       ]
       @
       calls
@@ -196,85 +220,69 @@ let rec to_operations context (expression_list:expression list) operation =
     | _ -> failwith "Not supported yet I guess")
     in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
-    return_type := [];
+
     expression_list @ [instr]
   | Cadda, [fst; snd]
   | Caddi, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Add)]
   | Csubi, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Sub)]
   | Cmuli, [fst; snd]
   | Cmulhi, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Mul)]
   | Cdivi, [fst; snd]
   | Cmodi, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.DivS)]
   | Cand, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.And)]
   | Cor, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Or)]
   | Cxor, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Xor)]
   | Clsl, [fst] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.Shl)]
   | Clsr, [fst] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.ShrU)]
   | Casr, [fst] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Binary (I32 I32Op.ShrS)]
   | Ccmpi Ceq, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Eq)]
   | Ccmpi Cne, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Ne)]
   | Ccmpi Clt, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LtS)]
   | Ccmpi Cle, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LeS)]
   | Ccmpi Cgt, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GtS)]
   | Ccmpi Cge, [fst; snd] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GeS)]
@@ -282,39 +290,31 @@ let rec to_operations context (expression_list:expression list) operation =
   (* pointer addition that produces a [Addr] (derived heap pointer) *)
   | Ccmpa _, _ -> failwith "Ccmpa"
   | Cnegf, [fst] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Unary (F32 F32Op.Neg)]
   | Cabsf, [fst] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Unary (F32 F32Op.Abs)]
   | Caddf, [fst; snd] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Add)]
   | Csubf, [fst; snd] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Sub)]
   | Cmulf, [fst; snd] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Mul)]
   | Cdivf, [fst; snd] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Div)]
   | Cfloatofint, [fst] ->
-    return_type := [Types.F32Type];
     (emit_expr context fst) @
      [Convert (F32 F32Op.ReinterpretInt)]
   | Cintoffloat, [fst] ->
-    return_type := [Types.I32Type];
     (emit_expr context fst) @
      [Convert (I32 I32Op.ReinterpretFloat)]
   | Ccmpf Ceq, [fst; snd] -> failwith "Ccmpf"
@@ -323,19 +323,14 @@ let rec to_operations context (expression_list:expression list) operation =
   | Ccmpf Cle, [fst; snd] -> failwith "Ccmpf"
   | Ccmpf Cgt, [fst; snd] -> failwith "Ccmpf"
   | Ccmpf Cge, [fst; snd] -> failwith "Ccmpf"
-  | Craise _, _-> failwith "Craise" (*
-    current idea for this to work:
-    - return the "error type" - a default address that is an error, what
-      it actually is should be checked further on
-    - every stack action needs to be registered
-    *)
+  | Craise _, _-> failwith "Craise"
   | Ccheckbound, _ -> failwith "Ccheckbound"
   | _ -> failwith ("Something is not handled here:" ^ string_of_int (List.length expression_list))
 and emit_expr context (expression:expression) =
   match expression with
-  | Cconst_int i -> return_type := [Types.I32Type]; [Const (I32 (I32.of_int_s i))]
-  | Cconst_natint i -> return_type := [Types.I32Type]; [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cconst_float s -> return_type := [Types.F32Type]; [Const (F32 (F32.of_float s))]
+  | Cconst_int i ->  [Const (I32 (I32.of_int_s i))]
+  | Cconst_natint i ->  [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cconst_float s ->  [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
     (try
       let res = local context symbol in
@@ -351,30 +346,30 @@ and emit_expr context (expression:expression) =
       let res = data context symbol in
       [Const (I32 res)]
     with
-    | _ ->
+    | _ ->(
+      print_endline ("Not found symbol:" ^ symbol);
       [Const (I32 (bind_func context symbol))])
-    (* print_endline ("Not found symbol:" ^ symbol); []) *)
+    )
   | Cconst_pointer i -> print_endline ("Not handled yet POINTER: " ^ string_of_int i); []
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
   | Cblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
-    return_type := [Types.I32Type];
-    print_endline ("Getting:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp);
+
     (try (
       let var = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
-      print_endline "A var local";
+      print_endline ("\t- Cvar:" ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       [GetLocal var]
     )
     with
     | _ -> (
-      print_endline "yikes...";
+      print_endline ("Coult not find Cvar:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp);
       []
     ))
   | Clet (ident, arg, fn_body) -> (
-    locals := !locals @ [Types.I32Type];
-    return_type := [Types.I32Type];
+    current_locals := !current_locals @ [Types.I32Type];
+
     let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
-    print_endline ("let id:" ^ Int32.to_string let_id);
+    print_endline ("let id:" ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) ^ " -> " ^ Int32.to_string let_id);
     let result = emit_expr context arg in
     let result = if result = [] then (
       print_endline "temporary solution...";
@@ -390,6 +385,39 @@ and emit_expr context (expression:expression) =
     )
   | Cassign _ -> failwith "Cassign"
   | Ctuple  _ -> failwith "Ctuple"
+  | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (
+    print_endline ("\t-tl:" ^ string_of_int (List.length tl));
+    let fn_args = ref [] in
+    let expression_list = List.fold_left (fun lst f ->
+      let result = emit_expr context f in
+      fn_args := !fn_args @ !current_return_type;
+      lst @ result
+    ) [] tl in
+    let load_action = to_operations context el op in
+    (* let fn_args = List.map (fun f ->
+      match f with
+      | Load _ -> I32Type
+      | Const (I32 _) -> I32Type
+      | Const (F32 _) -> F32Type
+      | GetLocal var -> (
+
+        (* let l = context.locals *)
+        print_endline "GETLOCAL"; I32Type
+        )
+      | Binary (I32 _) -> I32Type
+      | Binary (F32 _) -> F32Type
+      | _ -> failwith "Not handled load action...";
+    ) expression_list in *)
+    let type_ = Types.FuncType (!fn_args, [Types.I32Type]) in
+    let counter = !unique_name_counter in
+    unique_name_counter := !unique_name_counter + 1;
+    let ftype = bind_type context ("wasm_unique_name_" ^ string_of_int counter) type_ in
+    let w = !wasm_module in
+    wasm_module := Ast.{w with types = w.types @ [type_]};
+    expression_list @
+    load_action @
+    [CallIndirect ftype]
+    )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (
     try (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
@@ -402,37 +430,18 @@ and emit_expr context (expression:expression) =
   | Cop (operation, expression_list, _) -> to_operations context expression_list operation
   | Csequence (expression1, expression2) -> (emit_expr context expression1) @ (emit_expr context expression2)
   | Cifthenelse (if_, then_, else_) ->
-    print_endline "Cifthenelse is NOT fixed yet";
     let i = emit_expr context if_ in
     let t = emit_expr context then_ in
+    let return_ = !current_return_type in
     let e = emit_expr context else_ in
-    ignore(i);
-    ignore(t);
-    ignore(e);
-    []
-    (* [If (i, [], [])] *)
+    i @ [If (return_, t, e)]
   | Cswitch  _ -> failwith "Cswitch"
   | Cloop  _ -> failwith "Cloop"
   | Ccatch  _ -> failwith "Ccatch"
   | Cexit  _ -> failwith "Cexit"
   | Ctrywith  _ -> failwith "Ctrywith"
 
-let global_id = bind_global context "global_offset"
-
-let wasm_module = ref {
-  types = [];
-  globals = [];
-  tables = [];
-  memories = Types.[{
-    mtype = MemoryType {min = 0l; max = Some 100l}
-  }];
-  funcs = [];
-  start = None;
-  elems = [];
-  data = [];
-  imports = [];
-  exports = [];
-}
+let global_offset = ref 0
 
 let setup_helper_functions () = (
   let globals = [{
@@ -441,9 +450,19 @@ let setup_helper_functions () = (
   }]
   in
   ignore(bind_global context "global_memory_offset");
+  let data = [{
+    index =  0l;
+    offset = [Const (I32 (I32.of_int_s 0))];
+    init = "\\00"
+  }]
+  in
+  ignore(bind_data context "caml_globals_inited" 0l);
+  global_offset := !global_offset + 1;
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
-  let types = [type_] in
+  let empty_type = Types.FuncType ([], []) in
+  let types = [type_; empty_type] in
   ignore(bind_type context "allocate_memory" type_);
+  ignore(bind_type context "empty_type" type_);
   let funcs = [{
     name = "allocate_memory";
     ftype = 0l;
@@ -456,16 +475,37 @@ let setup_helper_functions () = (
       SetGlobal 0l;
       GetLocal 1l;
     ]
-  }]
+  }; {
+    name = "camlCamlinternalFormatBasics__entry";
+    ftype = 1l;
+    locals = [];
+    body = []
+    };
+    {
+      name = "camlPervasives__entry";
+      ftype = 1l;
+      locals = [];
+      body = []
+    };
+    {
+      name = "camlStd_exit__entry";
+      ftype = 1l;
+      locals = [];
+      body = []
+      }
+
+    ]
   in
   ignore(bind_func context "allocate_memory");
+  ignore(bind_func context "camlCamlinternalFormatBasics__entry");
+  ignore(bind_func context "camlPervasives__entry");
+  ignore(bind_func context "camlStd_exit__entry");
   let w = !wasm_module in
   wasm_module := Ast.{w with funcs = funcs;
               globals = globals;
-              types = types};
+              types = types;
+              data = data};
 )
-
-
 
 let name s =
   try Utf8.decode s with Utf8.Utf8 ->
@@ -488,18 +528,15 @@ let escape_int i size =
   !result
 ;;
 
-let global_offset = ref 0
-
 let compile_wasm_phrase ppf p =
   ignore(ppf);
   match p with
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
     let context = enter_func context in
-    locals := [];
-    return_type := [];
     let args = ref [] in
+    print_endline ("\n\nFunction:" ^ fun_name);
     List.iter (fun (ident, _) ->
-      print_endline ("FUNC:" ^ fun_name  ^ "." ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
+      print_endline ("\t." ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       args := [Types.I32Type] @ !args;
     ) fun_args;
@@ -509,15 +546,15 @@ let compile_wasm_phrase ppf p =
     | _ ->
       func context fun_name
     in
+    ignore(func_id);
     let body = emit_expr context fun_body in
-    let type_ = Types.FuncType (!args, !return_type) in
+    let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
-    print_endline ("Function id:" ^ (Int32.to_string ftype));
 
     let result = {
       name = fun_name;
       ftype;
-      locals = !locals;
+      locals = !current_locals;
       body;
     } in
     let export = {
@@ -531,23 +568,38 @@ let compile_wasm_phrase ppf p =
     wasm_module := Ast.{w with types = w.types @ [type_]};
     let w = !wasm_module in
     wasm_module := Ast.{w with exports = w.exports @ [export]};
-    (* print_endline (Print_wat.print_func result); *)
+
+    let w = !wasm_module in
+    let table = List.hd w.tables in
+    let tt = table.ttype in
+    Types.(match tt with
+    | TableType (limits, _) -> (
+      let max = match limits.max with
+      | Some s -> s
+      | None -> 0l
+      in
+      wasm_module := Ast.{w with tables = [{ttype = TableType ({min = 0l; max = Some (Int32.add max 1l)}, AnyFuncType)}]}
+    ));
     ())
   | Cdata dl -> (
     let datastring = ref "" in
     let start_offset = !global_offset in
-    let data_id = ref 0l in
+    (* let data_id = ref 0l in *)
     let offset = ref 0 in
     List.iter (function
-      | Cglobal_symbol s -> print_string ("global: " ^ s); ()
-      | Csymbol_address s -> (
-        (* either a func *)
-        (* either a global *)
-        (* either some memory address *)
-
+      | Cglobal_symbol s -> print_endline ("not handled global: " ^ s); ()
+      | Csymbol_address symbol -> (
+          try (
+            datastring := !datastring ^ (escape_int (Int32.to_int (data context symbol)) 32);
+          ) with
+          | _ -> datastring := !datastring ^ (escape_int (Int32.to_int (bind_data context symbol (I32.of_int_u start_offset))) 32);
+          ()
         )
-      | Cdefine_symbol s ->  (
-          data_id := bind_data context s (I32.of_int_u start_offset)
+      | Cdefine_symbol symbol ->  (
+          try (
+            datastring := !datastring ^ (escape_int (Int32.to_int (bind_data context symbol (I32.of_int_u start_offset))) 32);
+          ) with
+          | _ -> datastring := !datastring ^ (escape_int (Int32.to_int (data context symbol)) 32);
         )
       | Cint8 i -> (
           datastring := !datastring ^ escape_int i 8;
