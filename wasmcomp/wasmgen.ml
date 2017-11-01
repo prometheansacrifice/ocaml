@@ -367,13 +367,11 @@ and emit_expr context (expression:expression) =
     ))
   | Clet (ident, arg, fn_body) -> (
     current_locals := !current_locals @ [Types.I32Type];
-
     let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
     print_endline ("let id:" ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) ^ " -> " ^ Int32.to_string let_id);
     let result = emit_expr context arg in
     let result = if result = [] then (
-      print_endline "temporary solution...";
-    [Const (I32 (I32.of_int_s 0))]
+      failwith "Clet - not handled action"
     )
     else result
     in
@@ -386,7 +384,6 @@ and emit_expr context (expression:expression) =
   | Cassign _ -> failwith "Cassign"
   | Ctuple  _ -> failwith "Ctuple"
   | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (
-    print_endline ("\t-tl:" ^ string_of_int (List.length tl));
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
@@ -394,20 +391,6 @@ and emit_expr context (expression:expression) =
       lst @ result
     ) [] tl in
     let load_action = to_operations context el op in
-    (* let fn_args = List.map (fun f ->
-      match f with
-      | Load _ -> I32Type
-      | Const (I32 _) -> I32Type
-      | Const (F32 _) -> F32Type
-      | GetLocal var -> (
-
-        (* let l = context.locals *)
-        print_endline "GETLOCAL"; I32Type
-        )
-      | Binary (I32 _) -> I32Type
-      | Binary (F32 _) -> F32Type
-      | _ -> failwith "Not handled load action...";
-    ) expression_list in *)
     let type_ = Types.FuncType (!fn_args, [Types.I32Type]) in
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
@@ -443,10 +426,14 @@ and emit_expr context (expression:expression) =
 
 let global_offset = ref 0
 
+let name s =
+  try Utf8.decode s with Utf8.Utf8 ->
+    failwith "invalid UTF-8 encoding"
+
 let setup_helper_functions () = (
   let globals = [{
     gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
-    value = [Const (I32 (I32.of_int_s 0))] (* TODO: update this location with all the other thingies properly... *)
+    value = [Const (I32 (I32.of_int_s 0))]
   }]
   in
   ignore(bind_global context "global_memory_offset");
@@ -458,44 +445,56 @@ let setup_helper_functions () = (
   in
   ignore(bind_data context "caml_globals_inited" 0l);
   global_offset := !global_offset + 1;
+  let log_type = Types.FuncType([Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
   let empty_type = Types.FuncType ([], []) in
-  let types = [type_; empty_type] in
-  ignore(bind_type context "allocate_memory" type_);
-  ignore(bind_type context "empty_type" type_);
-  let funcs = [{
-    name = "allocate_memory";
-    ftype = 0l;
-    locals = [Types.I32Type];
-    body = [
-      GetGlobal 0l;
-      TeeLocal 1l;
-      GetLocal 0l;
-      Binary (I32 I32Op.Add);
-      SetGlobal 0l;
-      GetLocal 1l;
-    ]
-  }; {
-    name = "camlCamlinternalFormatBasics__entry";
-    ftype = 1l;
-    locals = [];
-    body = []
+  let types = [log_type; type_; empty_type] in
+  let log_ftype = bind_type context "log" type_ in
+  let alloc_mem_ftype = bind_type context "allocate_memory" type_ in
+  let empty_ftype = bind_type context "empty_type" type_ in
+  let imports = [
+    {
+      module_name = name "console";
+      item_name = name "log";
+      idesc = FuncImport log_ftype
+    }
+  ]
+  in
+  let funcs = [
+    {
+      name = "allocate_memory";
+      ftype = alloc_mem_ftype;
+      locals = [Types.I32Type];
+      body = [
+        GetGlobal 0l;
+        TeeLocal 1l;
+        GetLocal 0l;
+        Binary (I32 I32Op.Add);
+        SetGlobal 0l;
+        GetLocal 1l;
+      ]
+    };
+    {
+      name = "camlCamlinternalFormatBasics__entry";
+      ftype = empty_ftype;
+      locals = [];
+      body = []
     };
     {
       name = "camlPervasives__entry";
-      ftype = 1l;
+      ftype = empty_ftype;
       locals = [];
       body = []
     };
     {
       name = "camlStd_exit__entry";
-      ftype = 1l;
+      ftype = empty_ftype;
       locals = [];
       body = []
-      }
-
-    ]
+    }
+  ]
   in
+  ignore(bind_func context "log");
   ignore(bind_func context "allocate_memory");
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
@@ -504,12 +503,9 @@ let setup_helper_functions () = (
   wasm_module := Ast.{w with funcs = funcs;
               globals = globals;
               types = types;
-              data = data};
+              data = data;
+              imports = imports};
 )
-
-let name s =
-  try Utf8.decode s with Utf8.Utf8 ->
-    failwith "invalid UTF-8 encoding"
 
 let escape_int i size =
   let str =
@@ -589,17 +585,20 @@ let compile_wasm_phrase ppf p =
     List.iter (function
       | Cglobal_symbol s -> print_endline ("not handled global: " ^ s); ()
       | Csymbol_address symbol -> (
-          try (
+          (try (
             datastring := !datastring ^ (escape_int (Int32.to_int (data context symbol)) 32);
           ) with
-          | _ -> datastring := !datastring ^ (escape_int (Int32.to_int (bind_data context symbol (I32.of_int_u start_offset))) 32);
+          | _ -> datastring := !datastring ^ (escape_int (Int32.to_int (bind_data context symbol (I32.of_int_u start_offset))) 32));
+          offset := !offset + 4;
           ()
         )
       | Cdefine_symbol symbol ->  (
           try (
-            datastring := !datastring ^ (escape_int (Int32.to_int (bind_data context symbol (I32.of_int_u start_offset))) 32);
+            ignore(bind_data context symbol (I32.of_int_u (start_offset + !offset)))
           ) with
-          | _ -> datastring := !datastring ^ (escape_int (Int32.to_int (data context symbol)) 32);
+          | _ -> ignore(data context symbol);
+
+          ()
         )
       | Cint8 i -> (
           datastring := !datastring ^ escape_int i 8;
@@ -632,11 +631,18 @@ let compile_wasm_phrase ppf p =
       | Calign i ->  print_string (" Calign " ^ string_of_int i); ()
     ) dl;
     let w = !wasm_module in
-    print_endline ("datastring:" ^ !datastring);
+
+    global_offset := !global_offset + !offset;
     wasm_module := Ast.{w with data = w.data @ [{
       index =  0l;
       offset = [Const (I32 (I32.of_int_s start_offset))];
       init = !datastring
-    }]};
-    global_offset := !global_offset + !offset;
+    }];
+    globals = [{
+      gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
+      value = [Const (I32 (I32.of_int_s !global_offset))]
+    }]
+  };
+
+
     )

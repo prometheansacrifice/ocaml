@@ -262,9 +262,12 @@ let const c =
 
 (* Functions *)
 
-let func_with_name name f =
-  let {ftype; locals; body} = f in
-  Node ("func" ^ name,
+let name_ n = string (Utf8.encode n);;
+
+let func_with_name n f =
+  let {ftype; locals; body; name} = f in
+  let n = n ^ " ;;" ^ name ^ "\n" in
+  Node ("func" ^ n,
     [Node ("type " ^ var ftype, [])] @
     decls "local" locals @
     list instr body
