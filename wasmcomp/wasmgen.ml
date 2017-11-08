@@ -456,14 +456,14 @@ let setup_helper_functions () = (
   global_offset := !global_offset + 1;
   (* let log_type = Types.FuncType([Types.I32Type], []) in *)
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
-  let type2_ = Types.FuncType ([Types.I32Type; Types.I32Type], [Types.I32Type]) in
+  (* let type2_ = Types.FuncType ([Types.I32Type; Types.I32Type], [Types.I32Type]) in *)
   let empty_type = Types.FuncType ([], []) in
-  ignore(type2_);
-  let types = [type_;  type2_; empty_type] in
+  (* ignore(type2_); *)
+  let types = [type_; empty_type] in
 
   (* let log_ftype = bind_type context "log" log_type in *)
   let type__ftype = bind_type context "type_" type_ in
-  let type__ftype2 = bind_type context "type2_" type2_ in
+  (* let type__ftype2 = bind_type context "type2_" type2_ in *)
   let empty_ftype = bind_type context "empty_type" empty_type in
 (* ignore(type__ftype2); *)
   let imports = [
@@ -488,7 +488,7 @@ let setup_helper_functions () = (
         GetLocal 1l;
       ]
     };
-    {
+    (* {
       name = "call_1";
       ftype = type__ftype2;
       locals = [];
@@ -500,7 +500,7 @@ let setup_helper_functions () = (
         Load {ty = I32Type; align = 0; offset = 0l; sz = None};
         CallIndirect 3l;
       ]
-    };
+    }; *)
     {
       name = "camlCamlinternalFormatBasics__entry";
       ftype = empty_ftype;
@@ -523,23 +523,26 @@ let setup_helper_functions () = (
   in
   (* ignore(bind_func context "log"); *)
   ignore(bind_func context "allocate_memory");
-  let call_1_id = bind_func context "call_1" in
+  (* let call_1_id = bind_func context "call_1" in *)
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
   ignore(bind_func context "camlStd_exit__entry");
   let exports = [
-  {
+  (* {
     name = name "call_1";
     edesc = FuncExport call_1_id;
-  };
+  }; *)
   {
     name = name "table";
     edesc = TableExport 0l;
   };
-
+  {
+    name = name "memory";
+    edesc = MemoryExport 0l;
+  }
   ]
   in
-  let tables = [{ttype = TableType ({min = 5l; max = Some 5l}, AnyFuncType)}]
+  let tables = [{ttype = TableType ({min = 4l; max = Some 4l}, AnyFuncType)}]
   in
   let elems = [
     {
@@ -561,11 +564,6 @@ let setup_helper_functions () = (
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 3))];
       init=[3l]
-    };
-    {
-      index = 0l;
-      offset=[Const (I32 (I32.of_int_s 4))];
-      init=[4l]
     }
   ]
   in

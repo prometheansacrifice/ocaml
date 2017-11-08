@@ -1,1 +1,1 @@
-let curried_function b c = b + c + 22
+let curried_function b c = b + c + 4
