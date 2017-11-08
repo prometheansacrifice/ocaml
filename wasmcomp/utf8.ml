@@ -1,5 +1,4 @@
 [@@@ocaml.warning "-27"]
-
 exception Utf8
 
 let con n = 0x80 lor (n land 0x3f)

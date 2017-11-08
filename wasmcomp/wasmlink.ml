@@ -346,16 +346,18 @@ let link ppf objfiles output_name =
       then output_name ^ ".startup" ^ ext_asm
       else Filename.temp_file "camlstartup" ext_asm in
     let startup_obj = Filename.temp_file "camlstartup" ext_obj in
-    print_endline "BEFORE...";
       Asmgen.compile_unit output_name
         startup !Clflags.keep_startup_file startup_obj
         (fun () -> make_startup_file ppf units_tolink);
-      print_endline "";
-      Print_wat.module_ stdout 80 !Wasmgen.wasm_module
-      (* let s = Encode.encode !Wasmgen.wasm_module in
-      let oc = open_out_bin "out.wasm" in
+      Print_wat.module_ stdout 80 !Wasmgen.wasm_module;
+      let s = Encode.encode !Wasmgen.wasm_module in
+      let output_name = match !Clflags.output_name with
+      | Some s -> s
+      | None -> "out.wasm"
+      in
+      let oc = open_out_bin output_name in
       output_string oc s;
-      close_out oc; *)
+      close_out oc;
       (*
         Ignore for now - maybe fix later???
 

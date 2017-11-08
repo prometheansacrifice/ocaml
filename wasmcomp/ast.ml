@@ -172,6 +172,13 @@ type import =
   idesc : import_desc;
 }
 
+type data_part =
+| String of string
+| Int32 of int32
+| Nativeint of nativeint
+| Int16 of int
+| Int8 of int
+
 type module_ =
 {
   types : type_ list;
@@ -181,7 +188,7 @@ type module_ =
   funcs : func list;
   start : var option;
   elems : var list segment list;
-  data : string segment list;
+  data : data_part list segment list;
   imports : import list;
   exports : export list;
 }

@@ -481,11 +481,33 @@ let encode m =
       section 9 (vec table_segment) elems (elems <> [])
 
     (* Data section *)
-    let memory_segment seg =
-      segment string seg
+    (* let memory_segment seg =
+      segment string seg *)
+
+    let data_part_list (data_part_list:data_part list) =
+      let data_length = List.fold_left (fun cur add ->
+          cur + match add with
+          | String s -> String.length s
+          | Nativeint _
+          | Int32 _ -> 4
+          | Int16 _ -> 2
+          | Int8 _ -> 1
+      ) 0 data_part_list in
+      len data_length;
+      List.iter (fun f ->
+        match f with
+        | String bs -> put_string s bs
+        | Int32 i32 -> u32 i32
+        | Nativeint ni -> u32 (Nativeint.to_int32 ni)
+        | Int16 i -> u16 i
+        | Int8 i -> u8 i
+      ) data_part_list
+
+    let data_segment seg = (* https://github.com/WebAssembly/design/blob/master/BinaryEncoding.md#data-section *)
+      segment data_part_list seg
 
     let data_section data =
-      section 11 (vec memory_segment) data (data <> [])
+      section 11 (vec data_segment) data (data <> [])
 
     (* Module *)
 

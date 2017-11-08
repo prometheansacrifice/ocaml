@@ -301,14 +301,13 @@ let segment head dat seg =
 let elems seg =
   segment "elem" (list (atom var)) seg
 
-(* let data seg =
-  segment "data" break_bytes seg *)
+let foo (f:data_part list) =
+  (* let r = List.fold_left (fun acc add -> acc ^ "hi" ) "" f in *)
+  []
+
 
 let data seg =
-  let head = "data" in
-  let {index; offset; init} = seg in
-  Node (head, atom var index :: Node ("offset", const offset) :: [Atom ("\"" ^ init ^ "\"")])
-
+  segment "data" foo seg
 
 (* Modules *)
 
