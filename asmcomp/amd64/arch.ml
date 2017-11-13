@@ -51,9 +51,9 @@ let spacetime_node_hole_pointer_is_live_before _specific_op = false
 
 let big_endian = false
 
-let size_addr = 8
-let size_int = 8
-let size_float = 8
+let size_addr = 4
+let size_int = 4
+let size_float = 4
 
 let allow_unaligned_access = true
 

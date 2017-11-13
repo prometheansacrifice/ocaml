@@ -147,8 +147,23 @@ let oper_result_type = function
   | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> [F32Type]
   | Cfloatofint -> [F32Type]
   | Cintoffloat -> [I32Type]
-  | Craise _ -> []
+  | Craise _ -> [I32Type]
   | Ccheckbound -> []
+
+let exception_fns:((string, Ast.instr) list ref) = ref []
+let create_exception_function name instr = (
+    exception_fns := !exception_fns @ (name, instr)
+)
+let add_exception_functions ppf = (
+    List.iter (fun (name, instr) -> (
+      Cfunction ({fun_name = name; fun_args; fun_body; fun_fast; fun_dbg}
+
+      compile_wasm_phrase ppf
+
+      )) !exception_fns;
+    exception_fns := []
+)
+
 
 let rec to_operations context (expression_list:expression list) operation =
   current_return_type := oper_result_type operation;
@@ -190,6 +205,7 @@ let rec to_operations context (expression_list:expression list) operation =
         | Cconst_symbol _
         | Cblockheader _
         | Cvar _
+        | Cconst_pointer _
         | Cconst_float _ ->
           let (a, b) = lst in
           (a + 4, b @ [GetLocal local_; Const (I32 (I32.of_int_s a)); Binary (I32 I32Op.Add)] @ emit_expr context f @ [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
@@ -204,7 +220,10 @@ let rec to_operations context (expression_list:expression list) operation =
       @
       calls
       @
-      [GetLocal local_]
+      [GetLocal local_;
+       Const (I32 4l);
+       Binary (I32 I32Op.Add)
+      ]
     )
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
     let align = 0 in
@@ -255,14 +274,17 @@ let rec to_operations context (expression_list:expression list) operation =
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Xor)]
-  | Clsl, [fst] ->
-    (emit_expr context fst) @
+  | Clsl, [fst; snd] ->
+  (emit_expr context fst) @
+   (emit_expr context snd) @
      [Binary (I32 I32Op.Shl)]
-  | Clsr, [fst] ->
-    (emit_expr context fst) @
+  | Clsr, [fst; snd] ->
+  (emit_expr context fst) @
+   (emit_expr context snd) @
      [Binary (I32 I32Op.ShrU)]
-  | Casr, [fst] ->
-    (emit_expr context fst) @
+  | Casr, [fst; snd] ->
+  (emit_expr context fst) @
+   (emit_expr context snd) @
      [Binary (I32 I32Op.ShrS)]
   | Ccmpi Ceq, [fst; snd] ->
     (emit_expr context fst) @
@@ -325,9 +347,12 @@ let rec to_operations context (expression_list:expression list) operation =
   | Ccmpf Cle, [fst; snd] -> failwith "Ccmpf"
   | Ccmpf Cgt, [fst; snd] -> failwith "Ccmpf"
   | Ccmpf Cge, [fst; snd] -> failwith "Ccmpf"
-  | Craise _, _-> print_endline "not handled CRAISE"; []
+  | Craise _, _->
+    print_endline ("no: " ^ string_of_int (List.length expression_list));
+    print_endline "not handled CRAISE"; []
   | Ccheckbound, _ -> failwith "Ccheckbound"
-  | _ -> failwith ("Something is not handled here:" ^ string_of_int (List.length expression_list))
+  | _ ->
+  failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list))
 and emit_expr context (expression:expression) =
   match expression with
   | Cconst_int i ->  [Const (I32 (I32.of_int_s i))]
@@ -344,6 +369,7 @@ and emit_expr context (expression:expression) =
       [Call (global context symbol)]
     with
     | _ -> try
+      print_endline ("CALL:: " ^ symbol);
       [Call (func context symbol)]
     with
     | _ -> try
@@ -354,7 +380,7 @@ and emit_expr context (expression:expression) =
       print_endline ("Not found symbol:" ^ symbol);
       [Const (I32 (bind_func context symbol))])
     )
-  | Cconst_pointer i -> print_endline ("Not handled yet POINTER: " ^ string_of_int i); []
+  | Cconst_pointer i -> (current_return_type := [I32Type]; [Const (I32 (I32.of_int_s i))])
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
   | Cblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
@@ -418,6 +444,11 @@ and emit_expr context (expression:expression) =
       print_endline "Apply: Something did go wrong here...";
       []
     )
+  | Cop (Craise _, [arg], _) -> (
+      (emit_expr context arg)
+      @
+      [Call (func context "jsRaise")]
+    )
   | Cop (operation, expression_list, _) -> to_operations context expression_list operation
   | Csequence (expression1, expression2) -> (emit_expr context expression1) @ (emit_expr context expression2)
   | Cifthenelse (if_, then_, else_) ->
@@ -430,7 +461,25 @@ and emit_expr context (expression:expression) =
   | Cloop  _ -> failwith "Cloop"
   | Ccatch  _ -> print_endline "Not handled yet: Ccatch"; []
   | Cexit  _ -> failwith "Cexit"
-  | Ctrywith  _ -> failwith "Ctrywith"
+  | Ctrywith  (body, exn, handler) -> []
+    (*
+      turn body and handler into separate functions, give functions to jsTryWith.
+      jsTryWith should use the table to call these functions via call_indirect
+    *)
+
+    (* print_endline ("EXN:" ^ exn.Ident.name ^ " -> " ^ (string_of_int exn.Ident.stamp));
+
+    let body_fn_id = create_exception_function (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") (emit_expr context body) in
+
+    (* @
+     [Const (I32 (I32.of_int_s exn.Ident.stamp))]
+     @
+     (emit_expr context handler)
+     @ *)
+
+     [Const (I32 body_fn_id);
+     Call (func context "jsTryWith")] *)
+
 
 let global_offset = ref 0
 
@@ -454,24 +503,30 @@ let setup_helper_functions () = (
   in
   ignore(bind_data context "caml_globals_inited" 0l);
   global_offset := !global_offset + 1;
-  (* let log_type = Types.FuncType([Types.I32Type], []) in *)
-  let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
-  (* let type2_ = Types.FuncType ([Types.I32Type; Types.I32Type], [Types.I32Type]) in *)
-  let empty_type = Types.FuncType ([], []) in
-  (* ignore(type2_); *)
-  let types = [type_; empty_type] in
 
-  (* let log_ftype = bind_type context "log" log_type in *)
+  let jsTryWithType = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
+  let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
+  let empty_type = Types.FuncType ([], []) in
+
+(* jsTryWithType; *)
+  let types = [ jsTryWithType; type_; empty_type] in
+
+  let jsTryWithType_ = bind_type context "jsTryWithType" jsTryWithType in
   let type__ftype = bind_type context "type_" type_ in
-  (* let type__ftype2 = bind_type context "type2_" type2_ in *)
   let empty_ftype = bind_type context "empty_type" empty_type in
-(* ignore(type__ftype2); *)
+
   let imports = [
-    (* {
-      module_name = name "console";
-      item_name = name "log";
-      idesc = FuncImport log_ftype
-    } *)
+    {
+      module_name = name "js";
+      item_name = name "tryWith";
+      idesc = FuncImport jsTryWithType_
+    };
+    {
+      module_name = name "js";
+      item_name = name "raise";
+      idesc = FuncImport type__ftype
+    }
+
   ]
   in
   let funcs = [
@@ -488,19 +543,6 @@ let setup_helper_functions () = (
         GetLocal 1l;
       ]
     };
-    (* {
-      name = "call_1";
-      ftype = type__ftype2;
-      locals = [];
-      body = [
-        (* Const (I32 (I32.of_int_s 0)); *)
-        GetLocal 1l;
-        GetLocal 0l;
-        Load {ty = I32Type; align = 0; offset = 0l; sz = None};
-        Load {ty = I32Type; align = 0; offset = 0l; sz = None};
-        CallIndirect 3l;
-      ]
-    }; *)
     {
       name = "camlCamlinternalFormatBasics__entry";
       ftype = empty_ftype;
@@ -521,9 +563,9 @@ let setup_helper_functions () = (
     }
   ]
   in
-  (* ignore(bind_func context "log"); *)
+  ignore(bind_func context "jsTryWith");
+  ignore(bind_func context "jsRaise");
   ignore(bind_func context "allocate_memory");
-  (* let call_1_id = bind_func context "call_1" in *)
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
   ignore(bind_func context "camlStd_exit__entry");
@@ -542,7 +584,7 @@ let setup_helper_functions () = (
   }
   ]
   in
-  let tables = [{ttype = TableType ({min = 4l; max = Some 4l}, AnyFuncType)}]
+  let tables = [{ttype = TableType ({min = 6l; max = Some 6l}, AnyFuncType)}]
   in
   let elems = [
     {
@@ -564,6 +606,16 @@ let setup_helper_functions () = (
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 3))];
       init=[3l]
+    };
+    {
+      index = 0l;
+      offset=[Const (I32 (I32.of_int_s 4))];
+      init=[4l]
+    };
+    {
+      index = 0l;
+      offset=[Const (I32 (I32.of_int_s 5))];
+      init=[5l]
     }
   ]
   in
@@ -603,11 +655,20 @@ let compile_wasm_phrase ppf p =
     let context = enter_func context in
     let args = ref [] in
     print_endline ("\n\nFunction:" ^ fun_name);
+
+
     List.iter (fun (ident, _) ->
       print_endline ("\t." ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       args := [Types.I32Type] @ !args;
     ) fun_args;
+
+    (* fugly way to make a function a closure which is helpful for certain tests *)
+
+    (* if (List.length fun_dbg > 0) then (
+      args := [Types.I32Type] @ !args
+    ); *)
+
     let (func_id, place) = try (
       (bind_func context fun_name, false)
     ) with
@@ -615,7 +676,31 @@ let compile_wasm_phrase ppf p =
       (func context fun_name, true)
     )
     in
+    print_endline ("\tid:" ^ Int32.to_string func_id);
+
+    (* let last_item = List.hd (List.rev fun_body) in *)
+    (* remove unit return value *)
+    let rec remove_last_unit fun_body =
+      match fun_body with
+      | Csequence (expr1, Cconst_pointer 1) -> (
+        expr1
+        )
+      | Csequence (expr1, Csequence (a, b)) -> Csequence (expr1, remove_last_unit (Csequence (a, b)))
+      | _ -> fun_body
+    in
+    let fun_body = remove_last_unit fun_body in
     let body = emit_expr context fun_body in
+    (* let (type_, body) = match fun_body with
+    | Csequence (_, Cconst_pointer 1) -> (
+      let body = List.rev (List.tl (List.rev body)) in
+      (Types.FuncType (!args, !current_return_type), body)
+    )
+    | Csequence (_, Csequence _) -> (
+      print_endline "oh noes...";
+      (Types.FuncType (!args, !current_return_type), body)
+    )
+    | _ -> (Types.FuncType (!args, !current_return_type), body)
+    in *)
     let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
 
@@ -636,13 +721,16 @@ let compile_wasm_phrase ppf p =
     let funcs_ = ref [] in
     let inserted = ref false in
     List.iteri (fun i f -> (
-      if (i == Int32.to_int func_id) then (
+      (* TODO: add a check for the 2 - which should match the imports *)
+      if (i + 2 == Int32.to_int func_id) then (
         funcs_ := !funcs_ @ [result; f];
         inserted := true;
       ) else (
         funcs_ := !funcs_ @ [f]
       )
     )) w.funcs;
+    (* correctly update the funcs index also... *)
+
     if (not !inserted) then (
       funcs_ := !funcs_ @ [result]
     );
@@ -671,6 +759,9 @@ let compile_wasm_phrase ppf p =
         }]
       }
     ));
+
+    add_exception_functions ppf ();
+
     ())
   | Cdata dl -> (
     let init = ref [] in
