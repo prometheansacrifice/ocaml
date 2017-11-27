@@ -6,7 +6,8 @@ type error =
 
 exception Exception of error
 
-let other () =
+let other a =
+  (* print_endline (string_of_int a); *)
   raise (Exception Exception1)
 
 let other2 () =
@@ -18,10 +19,21 @@ let other2 () =
 let other4 () =
   raise (Exception Exception4) *)
 
-let foo () = try
-  other ()
-with
-| Exception (Exception1) -> 300
-| Exception (Exception2) -> 500
+let c = ref 12
+
+let foo b = (
+  let a = 12 + b in
+  let otherthingy x =
+    x * 12
+  in
+  (try
+    c := (otherthingy !c) + (other a * b);
+    !c
+  with
+  | Exception (Exception1) -> 300
+  | Exception (Exception2) -> 500
+  );
+  (* print_int !c *)
+)
 (* | Exception (Exception3) -> 700
 | Exception (Exception4) -> 900 *)

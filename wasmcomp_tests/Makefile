@@ -13,7 +13,7 @@ build:
 	../ocamlopt -wasm test/exception_handling.ml -o test/exception_handling.wasm
 	../ocamlopt -wasm test/tuple.ml -o test/tuple.wasm
 	../ocamlopt -wasm test/array.ml -o test/array.wasm
-	../ocamlopt -wasm test/crud.ml -o test/crud.wasm
+	# ../ocamlopt -wasm test/crud.ml -o test/crud.wasm
 	../ocamlopt -wasm test/arithmetic.ml -o test/arithmetic.wasm
 	# run the test
 	yarn test

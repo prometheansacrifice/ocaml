@@ -1,3 +1,4 @@
+let count = 0;
 const importObject = {
   console: {
     log: function(e) {
@@ -5,17 +6,15 @@ const importObject = {
     }
   },
   js: {
-    tryWith: function(arg1, arg2) {
+    tryWith: function(memPos, arg1, arg2) {
       // TODO: implement this in wasmgen.ml properly. Requires arg1 and arg2 to become functions.
-      try {
-        return arg1();
-      }
-      catch (e) {
-        return arg2(e);
-      }
+      console.debug('** tryWith ** ', memPos, arg1, arg2);
     },
     raise(e){
       throw e;
+    },
+    caml_fresh_oo_id(v) {
+      count++;
     }
   }
 
@@ -50,7 +49,7 @@ describe('functions', () => {
         expect(i32[0]).to.equal(1792);
         expect(i32[1]).to.equal(21);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1], i32[1] + 8));
-        expect(i32[0]).to.equal(6);
+        expect(i32[0]).to.equal(7 );
         let func = instance.exports.table.get(i32[0]);
         const calculatedValue = func(ocamlInt(5));
         expect(jsInt(calculatedValue)).to.equal(20);
@@ -70,7 +69,7 @@ describe('functions', () => {
         expect(i32[0]).to.equal(1792);
         expect(i32[1]).to.equal(21);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1] + 8, i32[1] + 16));
-        expect(i32[0]).to.equal(6);
+        expect(i32[0]).to.equal(7);
         let func = instance.exports.table.get(i32[0]);
         const calculatedValue = func(ocamlInt(6), ocamlInt(20));
         expect(jsInt(calculatedValue)).to.equal(30);
@@ -93,7 +92,7 @@ describe('functions', () => {
 
         // the pointer to caml_curry2
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32_[1] + 0, i32_[1] + 4));
-        expect(i32[0]).to.equal(7);
+        expect(i32[0]).to.equal(8);
 
         // invoke caml_curry2
         let camlCurry2 = instance.exports.table.get(i32[0]);
@@ -143,17 +142,17 @@ describe('exception handling', () => {
         try {
           instance.exports.camlException_handling__other_1006();
         } catch (pointer) {
-          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer, pointer + 4));
+          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 4, pointer + 8));
           expect(i32[0]).to.equal(1);
         }
         try {
-          instance.exports.camlException_handling__other2_1009();
+          instance.exports.camlException_handling__other2_1008();
         } catch (pointer) {
-          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer, pointer + 4));
+          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 4, pointer + 8));
           expect(i32[0]).to.equal(3);
         }
 
-        // console.debug(instance.exports.camlException_handling__foo_1012());
+        // expect(jsInt(instance.exports.camlException_handling__foo_1208(ocamlInt(10)))).to.equal(384);
 
         done();
       })
