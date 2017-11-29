@@ -77,6 +77,7 @@ let bind category space x =
   i
 
 let bind_local category (space:local_space) x value_type =
+  print_endline ("bind_local:" ^ x);
   if VarMap.mem x space.l_map then
     failwith ("Duplicate:" ^ x);
   let i = space.l_count in
@@ -187,11 +188,31 @@ let pop el = (
   ) el;
 )
 
-let exception_fns:(((string * expression) list) ref) = ref []
-let create_exception_function context mem_pointer (name: string) (instr:expression) = (
+type exception_fn = {
+  name: string;
+  expression: expression;
+  mem_pointer: int32;
+  locals: (string * value_type) list;
+  is_handler: bool;
+  exn_name: string option
+}
+
+let exception_fns:((exception_fn list) ref) = ref []
+let create_exception_function ?is_handler:(is_handler = false) ?exn_name (context:context) mem_pointer (name: string) (instr:expression) = (
     (* properly store the locals info to restore later *)
     let fn_id = bind_func context name in
-    exception_fns := !exception_fns @ [(name, instr)];
+    let (st:((string * value_type) list) ref) = ref [] in
+    VarMap.iter (fun key (value, t) -> st := !st @ [(key, t)]) context.locals.l_map;
+    let e_fn = {
+      name = name;
+      expression = instr;
+      mem_pointer = mem_pointer;
+      locals = !st;
+      is_handler = is_handler;
+      exn_name
+    }
+    in
+    exception_fns := !exception_fns @ [e_fn];
     fn_id
 )
 
@@ -424,7 +445,7 @@ let rec to_operations context (expression_list:expression list) operation =
   print_endline ("popped:" ^ string_of_int (List.length expression_list));
   print_endline ("remaining stack length:" ^ string_of_int (Stack.length current_stack));
   result
-and emit_expr context (expression:expression) =
+and emit_expr (context:context) (expression:expression) =
   match expression with
   | Cconst_int i ->
     push_direct [I32Type];
@@ -545,6 +566,7 @@ and emit_expr context (expression:expression) =
       []
     )
   | Cop (Craise _, [arg], _) -> (
+
       (emit_expr context arg)
       @
       [Call (func context "jsRaise")]
@@ -564,6 +586,7 @@ and emit_expr context (expression:expression) =
   | Cexit  _ -> failwith "Cexit"
   | Ctrywith  (body, exn, handler) ->
     (
+      print_endline (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp);
 
       let memory_alloc_size = ref 0 in
       VarMap.iter (fun key (value, t) ->
@@ -585,7 +608,7 @@ and emit_expr context (expression:expression) =
       in
       let set_blocks = ref [] in
       let get_blocks = ref [] in
-      let memory_block_position = ref 0 in
+      let memory_block_position = ref 4 in (* first block is reserved for the return value *)
       VarMap.iter (fun key (value, t) ->
         set_blocks := !set_blocks @ [
           GetLocal alloc_memory_pointer;
@@ -612,9 +635,7 @@ and emit_expr context (expression:expression) =
             | _ -> failwith "not supported"
           );
         match t with
-          | I32Type -> (
-              memory_block_position := !memory_block_position + 4;
-            )
+          | I32Type
           | F32Type -> (
               memory_block_position := !memory_block_position + 4;
             )
@@ -622,8 +643,9 @@ and emit_expr context (expression:expression) =
       ) context.locals.l_map;
 
       let body_fn_id = create_exception_function context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") body in
-      let handler_fn_id = create_exception_function context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") body in
-
+      let exn_name = (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp) in
+      let handler_fn_id = create_exception_function ~is_handler:true ~exn_name context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") handler in
+      current_return_type := [I32Type];
       !store_instructions @
       !set_blocks @
 
@@ -633,95 +655,11 @@ and emit_expr context (expression:expression) =
       Const (I32 body_fn_id);
       Const (I32 handler_fn_id);
       Call 0l] @
-      (* try body *)
-      (* with handler *)
       !get_blocks @
-      [Nop] @
-      (*
-         - create a function from the body block
-         - load the values from memory
-      *)
-
-      (* with handler *)
-      (* continue block... *)
-
-      (* TODO:
-        containing function:
-        ===
-         - put current local stack in a memory block:
-           - alloc big enough chunk (call alloc function) - ok
-           - store all the local vars (i32.store thingy) - working on it
-         - in try block:
-           - load values (cload)
-           - do other stuff
-           - store Values (store)
-         - in with block:
-          - load values (cload)
-          - do with block stuff
-          - store values (cstore)
-         - outside trywith block:
-          - load values (cload)
-
-       *)
-
-      (* create a separate function for body *)
-      (* create a separate function for handler *)
-      (* let body_content = emit_expr context body in *)
-      (* let rt = !current_return_type in *)
-      (* let body_fn_id = create_exception_function context (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") body in *)
-      (* if List.length rt > 0 then *)
-        (* push_direct rt; *)
-      (* let handler_fn_id = create_exception_function context (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") body in *)
-      (* ignore(body_fn_id); *)
-      (* ignore(handler_fn_id); *)
-      (* print_endline ("current stack:" ^ string_of_int (Stack.length current_stack)); *)
-      []
+      [ GetLocal alloc_memory_pointer;
+        Load {ty = I32Type; align = 0; offset = 0l; sz = None}; (* TODO: also support float return value... *)
+      ]
     )
-
-
-    (* print_endline ("A1111:" ^ exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler");
-
-    let handlerFn = create_exception_function context (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") handler in
-    let returnType = !current_return_type
-    in
-    let (set_local_if_needed, get_local_if_needed) = (
-      if returnType <> [] then
-        (
-          let local_id = bind_local context ("handler_fn_" ^ string_of_int exn.Ident.stamp) in
-          ([SetLocal local_id], [GetLocal local_id])
-          )
-
-      else
-        ([], [])
-    )
-    in
-    [Const (I32 handlerFn);
-     Call (func context "jsTryWithOpen");
-    ]
-    @ (emit_expr context handler)
-    @
-    set_local_if_needed
-    @
-    [Call (func context "jsTryWithClose")]
-    @
-    get_local_if_needed *)
-    (*
-      turn body and handler into separate functions, give functions to jsTryWith.
-      jsTryWith should use the table to call these functions via call_indirect
-    *)
-
-    (* print_endline ("EXN:" ^ exn.Ident.name ^ " -> " ^ (string_of_int exn.Ident.stamp));
-
-    let body_fn_id = create_exception_function (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") (emit_expr context body) in
-
-    (* @
-     [Const (I32 (I32.of_int_s exn.Ident.stamp))]
-     @
-     (emit_expr context handler)
-     @ *)
-
-     *)
-
 
 let global_offset = ref 0
 
@@ -746,7 +684,7 @@ let setup_helper_functions () = (
   ignore(bind_data context "caml_globals_inited" 0l);
   global_offset := !global_offset + 1;
 
-  let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], [Types.I32Type]) in
+  let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
   let empty_type = Types.FuncType ([], []) in
 
@@ -886,15 +824,22 @@ let setup_helper_functions () = (
 let rec add_exception_functions ppf = (
   let _exception_fns = !exception_fns in
   exception_fns := [];
-  List.iter (fun (name, instr) -> (
-    (*
-      These functions require stuff that is stored in memory.
-    *)
-    compile_wasm_phrase ppf (Cfunction ({fun_name = name; fun_args = []; fun_body = instr; fun_fast = false; fun_dbg = []}))
+  List.iter (fun {name; expression; mem_pointer; locals; is_handler; exn_name} -> (
+    let exn_name = match exn_name with
+    | Some s -> s
+    | _ -> ""
+    in
+    compile_wasm_phrase  ~locals ~is_handler ~exn_name ppf (Cfunction ({
+      fun_name = name;
+      fun_args = [];
+      fun_body = expression;
+      fun_fast = false;
+      fun_dbg = []
+      }))
     )) _exception_fns;
 
 )
-and compile_wasm_phrase ppf p =
+and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
   ignore(ppf);
   match p with
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
@@ -911,19 +856,16 @@ and compile_wasm_phrase ppf p =
       | [|Float|] -> F32Type
       | _ -> failwith "wait what..."
       in
-      (* print_endline "FOOBAR0999"; *)
       ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) value_type);
       args := [Types.I32Type] @ !args;
     ) fun_args;
-
-
 
     (* fugly way to make a function a closure which is helpful for certain tests *)
 
     (* if (List.length fun_dbg > 0) then (
       args := [Types.I32Type] @ !args
     ); *)
-    (* print_endline "FOOBAR1234"; *)
+
     let (func_id, place) = try (
       (bind_func context fun_name, false)
     ) with
@@ -956,18 +898,65 @@ and compile_wasm_phrase ppf p =
       | _ -> fun_body
     in
     let fun_body = remove_last_unit fun_body in
-    let body = emit_expr context fun_body in
-    (* let (type_, body) = match fun_body with
-    | Csequence (_, Cconst_pointer 1) -> (
-      let body = List.rev (List.tl (List.rev body)) in
-      (Types.FuncType (!args, !current_return_type), body)
+    let body = (match locals with
+    | Some locals ->
+      let memory_block_position = ref 4 (* first block is the return value when present *) in
+      let mp = bind_local context "mem_pointer" I32Type in
+      args := [I32Type];
+
+      (match is_handler, exn_name with
+      | Some s, Some n when s = true -> (
+        ignore(bind_local context n I32Type);
+        args := !args @ [I32Type]
+        )
+      | _ -> ());
+
+      List.fold_left (fun l (name, t) ->
+        let local_id = bind_local context name t in
+
+        let memory_pos = [
+          GetLocal mp;
+          Const (I32 (I32.of_int_s !memory_block_position));
+          Binary (I32 I32Op.Add)
+        ] @
+          (match t with
+            | I32Type ->
+              [Load {ty = I32Type; align = 0; offset = 0l; sz = None};
+               SetLocal local_id]
+            | F32Type ->
+              [Load {ty = F32Type; align = 0; offset = 0l; sz = None};
+               SetLocal local_id]
+            | _ -> assert false
+            )
+        in
+        memory_block_position := !memory_block_position + 4;
+        memory_pos
+      ) [] locals;
+    | _ -> [])
+    in
+    let fun_body = emit_expr context fun_body in
+    let fun_body = (if List.length !current_return_type > 0 then
+    (match !current_return_type, locals with
+      | [I32Type], Some _ ->
+        current_return_type := [];
+        let (mp, _) = local context "mem_pointer" in
+        [GetLocal mp] @
+        fun_body @
+        [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
+      | [F32Type], Some _ ->
+        current_return_type := [];
+        let (mp, _) = local context "mem_pointer" in
+        [GetLocal mp] @
+        fun_body @
+        [Store {ty = F32Type; align = 0; offset = 0l; sz = None}]
+      | _ -> fun_body
+      )
+    else
+      fun_body
     )
-    | Csequence (_, Csequence _) -> (
-      print_endline "oh noes...";
-      (Types.FuncType (!args, !current_return_type), body)
-    )
-    | _ -> (Types.FuncType (!args, !current_return_type), body)
-    in *)
+    in
+    let body = body @ fun_body
+    in
     let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
     let locals = ref []
@@ -983,8 +972,6 @@ and compile_wasm_phrase ppf p =
       name = name fun_name;
       edesc = FuncExport func_id;
     } in
-
-
 
     let w = !wasm_module in
     let funcs_ = ref [] in

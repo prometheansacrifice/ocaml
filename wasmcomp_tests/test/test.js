@@ -1,4 +1,5 @@
 let count = 0;
+let globalInstance = null;
 const importObject = {
   console: {
     log: function(e) {
@@ -6,9 +7,16 @@ const importObject = {
     }
   },
   js: {
-    tryWith: function(memPos, arg1, arg2) {
-      // TODO: implement this in wasmgen.ml properly. Requires arg1 and arg2 to become functions.
-      console.debug('** tryWith ** ', memPos, arg1, arg2);
+    tryWith: function(memPos, tryBody_, withHandler_) {
+      const table = globalInstance.exports.table;
+      const tryBody = table.get(tryBody_);
+      const withHandler = table.get(withHandler_);
+      try {
+        tryBody(memPos);
+      }
+      catch(e) {
+        withHandler(memPos, e);
+      }
     },
     raise(e){
       throw e;
@@ -139,24 +147,30 @@ describe('exception handling', () => {
       fetchAndInstantiate("/base/test/exception_handling.wasm").then(instance => {
 
         expect(instance.exports.caml_program()).to.equal(1);
+
+        globalInstance = instance;
         try {
           instance.exports.camlException_handling__other_1006();
         } catch (pointer) {
-          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 4, pointer + 8));
-          expect(i32[0]).to.equal(1);
+          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 64));
+          expect(i32[0]).to.equal(870);
+          expect(i32[1]).to.equal(1);
         }
         try {
           instance.exports.camlException_handling__other2_1008();
         } catch (pointer) {
-          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 4, pointer + 8));
-          expect(i32[0]).to.equal(3);
+          var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 8));
+          expect(i32[0]).to.equal(870);
+          expect(i32[1]).to.equal(3);
         }
+
+        expect(instance.exports.camlException_handling__foo_1207(55)).to.equal(ocamlInt(500));
 
         // expect(jsInt(instance.exports.camlException_handling__foo_1208(ocamlInt(10)))).to.equal(384);
 
         done();
       })
-      .catch(e => { done(e) })
+      .catch(e => { console.debug('what:', e); done(e) })
     })
   });
 });
