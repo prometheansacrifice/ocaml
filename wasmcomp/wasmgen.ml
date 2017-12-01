@@ -169,25 +169,6 @@ let oper_result_type = function
   | Craise _ -> [I32Type]
   | Ccheckbound -> []
 
-let current_stack: (value_type list) Stack.t = Stack.create()
-
-let push_direct vt = (
-  (* print_endline ("-> push " ^ (string_of_int (Stack.length current_stack)) ^ " + 1"); *)
-  Stack.push vt current_stack
-)
-
-let push op =
-  let vt = oper_result_type op in
-  if List.length vt > 0 then
-    push_direct vt
-
-let pop el = (
-  List.iter(fun vt ->
-    (* print_endline ("<- pop " ^ (string_of_int (Stack.length current_stack)) ^ " - 1"); *)
-    ignore(Stack.pop current_stack);
-  ) el;
-)
-
 type exception_fn = {
   name: string;
   expression: expression;
@@ -246,7 +227,8 @@ let rec to_operations context (expression_list:expression list) operation =
       | Word_int -> Load {ty = I32Type; align; offset; sz = None}
       | Word_val -> Load {ty = I32Type; align; offset; sz = None}
       | Single -> Load {ty = I32Type; align; offset; sz = None}
-      | _ -> failwith "Not supported yet I guess")
+      | Double -> Load {ty = F32Type; align; offset; sz = None} (* this is totally wrong but okay... *)
+      | Double_u -> Load {ty = F32Type; align; offset; sz = None})
       (* | Double -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
       | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
@@ -261,7 +243,9 @@ let rec to_operations context (expression_list:expression list) operation =
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
-      let (size, calls) = List.fold_left (fun lst f -> match f with
+      let (size, calls) = List.fold_left (fun lst f ->
+        let (size, calls) = lst in
+        match f with
         | Cconst_int _
         | Cconst_natint _
         | Cconst_symbol _
@@ -271,8 +255,14 @@ let rec to_operations context (expression_list:expression list) operation =
         | Cconst_float _
         | Cop (Cload _, _, _)
         | Cop (Cextcall _, _, _) ->
-          let (a, b) = lst in
-          (a + 4, b @ [GetLocal local_; Const (I32 (I32.of_int_s a)); Binary (I32 I32Op.Add)] @ emit_expr context f @ [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
+          (size + 4,
+           calls @
+           [GetLocal local_;
+            Const (I32 (I32.of_int_s size));
+            Binary (I32 I32Op.Add)] @
+           emit_expr context f @
+           [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}]
+          )
         | Clet _ -> failwith "CLET!"
         | Csequence _ -> failwith "Csequence!"
         | Ccatch _ -> failwith "Ccatch!"
@@ -281,9 +271,13 @@ let rec to_operations context (expression_list:expression list) operation =
         | Ctuple _ -> failwith "Ctuple!"
         | Cop (Capply _, _, _) -> failwith "Cop 1!"
         | Cop (Calloc, _, _) -> failwith "Cop 2!"
-        (* | Cop (Cload _, _, _) -> failwith "Cop 3!" *)
-        | Cop (Cstore _, _, _) -> failwith "Cop 4!"
-
+        | Cop (Cstore _, _, _) -> failwith "Cop 3!"
+        | Cop (Cabsf, el, _) -> (size + 4, to_operations context el Cabsf)
+        | Cop (Cnegf, el, _) -> (size + 4, to_operations context el Cnegf)
+        | Cop (Caddf, el, _) -> (size + 4, to_operations context el Caddf)
+        | Cop (Csubf, el, _) -> (size + 4, to_operations context el Csubf)
+        | Cop (Cmulf, el, _) -> (size + 4, to_operations context el Cmulf)
+        | Cop (Cdivf, el, _) -> (size + 4, to_operations context el Cdivf)
         | Cop _ -> failwith "Cop 4!"
         | Cifthenelse _ -> failwith "Cifthenelse!"
         | Cswitch _ -> failwith "Cswitch!"
@@ -318,8 +312,9 @@ let rec to_operations context (expression_list:expression list) operation =
     | Thirtytwo_signed -> Store {ty = I32Type; align; offset; sz = None}
     | Word_int -> Store {ty = I32Type; align; offset; sz = None}
     | Word_val -> Store {ty = I32Type; align; offset; sz = None}
-    | Single -> Store {ty = I32Type; align; offset; sz = None}
-    | _ -> failwith "Not supported yet I guess")
+    | Single -> Store {ty = F32Type; align; offset; sz = None}
+    | Double -> Store {ty = F32Type; align; offset; sz = None} (* this all seems rather wrong -> double is 64bit not 32... *)
+    | Double_u -> Store {ty = F32Type; align; offset; sz = None})
     in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
     expression_list @ [instr]
@@ -338,11 +333,25 @@ let rec to_operations context (expression_list:expression list) operation =
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Mul)]
-  | Cdivi, [fst; snd]
+  | Cdivi, [fst; snd] ->
+  (emit_expr context fst) @
+   (emit_expr context snd) @
+   [Binary (I32 I32Op.DivS)]
   | Cmodi, [fst; snd] ->
+    let counter = !unique_name_counter in
+    unique_name_counter := !unique_name_counter + 1;
+    let cmod_local = bind_local context ("cmod_" ^ string_of_int counter) I32Type in
+    let cmod_local2 = bind_local context ("cmod2_" ^ string_of_int counter) I32Type in
     (emit_expr context fst) @
+     [SetLocal cmod_local;
+      GetLocal cmod_local;
+      GetLocal cmod_local] @
      (emit_expr context snd) @
-     [Binary (I32 I32Op.DivS)]
+     [TeeLocal cmod_local2;
+      Binary (I32 I32Op.DivS);
+      GetLocal cmod_local2;
+      Binary (I32 I32Op.Mul);
+      Binary (I32 I32Op.Sub)]
   | Cand, [fst; snd] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
@@ -435,27 +444,15 @@ let rec to_operations context (expression_list:expression list) operation =
   | _ ->
   failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in
-  print_endline ("before stack length:" ^ string_of_int (Stack.length current_stack));
   (match operation with
   | Cstore _ -> print_endline "cstore yes"
   | _ -> ());
-  pop expression_list;
-  print_endline "push indirectly an operation";
-  push operation;
-  print_endline ("popped:" ^ string_of_int (List.length expression_list));
-  print_endline ("remaining stack length:" ^ string_of_int (Stack.length current_stack));
   result
 and emit_expr (context:context) (expression:expression) =
   match expression with
-  | Cconst_int i ->
-    push_direct [I32Type];
-    [Const (I32 (I32.of_int_s i))]
-  | Cconst_natint i ->
-    push_direct [I32Type];
-    [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cconst_float s ->
-    push_direct [F32Type];
-    [Const (F32 (F32.of_float s))]
+  | Cconst_int i -> [Const (I32 (I32.of_int_s i))]
+  | Cconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cconst_float s -> [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
     (
     try
@@ -466,37 +463,25 @@ and emit_expr (context:context) (expression:expression) =
       [Call (global context symbol)]
     with
     | _ -> try (
-      let type_ = func_type context (func context symbol) in
-      (match type_ with
-      | FuncType (args, output) ->
-        pop args;
-        if List.length output > 0 then (
-          push_direct output
-        );
-      [Call (func context symbol)])
+      [Call (func context symbol)]
     )
     with
     | _ -> try
       let res = data context symbol in
-      push_direct [I32Type];
       [Const (I32 res)]
     with
     | _ -> (
       (* TODO: resolve this at a later point... *)
-      push_direct [I32Type];
       print_endline ("TODO: " ^ symbol);
       [DelayedConst symbol]
     )
     )
-  | Cconst_pointer i -> (print_endline "cconst_pointer"; current_return_type := [I32Type]; push_direct [I32Type]; [Const (I32 (I32.of_int_s i))])
+  | Cconst_pointer i -> (current_return_type := [I32Type]; [Const (I32 (I32.of_int_s i))])
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
-  | Cblockheader (i, _) -> push_direct [I32Type]; [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
-      print_endline ("push direct cvar:" ^ ident.Ident.name);
-      push_direct [I32Type];
     (try (
       let (var, _) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
-      print_endline ("\t- Cvar:" ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp));
       [GetLocal var]
     )
     with
@@ -525,7 +510,6 @@ and emit_expr (context:context) (expression:expression) =
     @
     emit_expr context fn_body
     in
-    pop [Types.I32Type];
     result
     )
   | Cassign _ -> failwith "Cassign" (* setlocal??? *)
@@ -549,7 +533,6 @@ and emit_expr (context:context) (expression:expression) =
     let ftype = bind_type context ("wasm_unique_name_" ^ string_of_int counter) type_ in
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [type_]};
-    pop !fn_args;
     expression_list @
     load_action @
     [CallIndirect ftype]
@@ -578,7 +561,7 @@ and emit_expr (context:context) (expression:expression) =
     let t = emit_expr context then_ in
     let return_ = !current_return_type in
     let e = emit_expr context else_ in
-    pop [1;2];
+    current_return_type := return_;
     i @ [If (return_, t, e)]
   | Cswitch  _ -> failwith "Cswitch"
   | Cloop  _ -> failwith "Cloop"
@@ -671,18 +654,26 @@ let setup_helper_functions () = (
   let globals = [{
     gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
     value = [Const (I32 (I32.of_int_s 0))]
-  }]
+  }
+  ]
   in
   ignore(bind_global context "global_memory_offset");
 
   let data = [{
     index =  0l;
-    offset = [Const (I32 (I32.of_int_s 0))];
+    offset = [Const (I32 0l)];
     init = [Int8 0]
-  }]
+  }; {
+    index =  0l;
+    offset = [Const (I32 1l)];
+    init = [Int32 0l]
+  }
+  ]
   in
   ignore(bind_data context "caml_globals_inited" 0l);
-  global_offset := !global_offset + 1;
+  ignore(bind_data context "caml_backtrace_pos" 1l);
+  (* ignore(bind_data context "caml_backtrace_pos" 0l); *)
+  global_offset := !global_offset + 5;
 
   let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
@@ -936,7 +927,8 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     in
     let fun_body = emit_expr context fun_body in
     let fun_body = (if List.length !current_return_type > 0 then
-    (match !current_return_type, locals with
+    (
+      match !current_return_type, locals with
       | [I32Type], Some _ ->
         current_return_type := [];
         let (mp, _) = local context "mem_pointer" in
@@ -1016,16 +1008,6 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
       }
     ));
 
-    (* a check to make sure the stack we have is at least correct here *)
-    if Stack.length current_stack <> List.length (!current_return_type) then (
-      print_endline (fun_name ^ ": mismatch -> stack length:" ^ (string_of_int (Stack.length current_stack)) ^ " vs return type length:" ^ (string_of_int (List.length !current_return_type)));
-    );
-    if List.length !current_locals <> Int32.to_int context.locals.l_count then (
-      print_endline (fun_name ^ ": mismatch -> current locals (" ^ string_of_int (List.length !current_locals) ^ ") doesnt match context locals (" ^ string_of_int (Int32.to_int context.locals.l_count) ^ ")");
-    );
-
-    Stack.clear current_stack;
-
     add_exception_functions ppf;
     ())
   | Cdata dl -> (
@@ -1053,16 +1035,23 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           ()
         )
       | Cdefine_symbol symbol ->  (
-          print_endline "-> SYMBOL";
+          print_endline ("\n-> SYMBOL:" ^ symbol);
           try (
             ignore(bind_data context symbol (I32.of_int_u (start_offset + !offset)));
             let w = !wasm_module in
-            let newFuncs = List.map (fun func -> (
-              let new_func_body = List.map (fun f ->
+            let newFuncs = List.map (fun (func:Ast.func) -> (
+              let rec process_instr a = List.map (fun f ->
                 match f with
-                | DelayedConst s when s = symbol -> Const (I32 (I32.of_int_u (start_offset + !offset)))
+                | DelayedConst s when s = symbol -> (
+                  Const (I32 (I32.of_int_u (start_offset + !offset)))
+                )
+                | Block (s, i) -> Block (s, process_instr i)
+                | Loop (s, i) -> Loop (s, process_instr i)
+                | If (t, il1, il2) -> If (t, process_instr il1, process_instr il2)
                 | _ -> f
-              ) func.body
+              ) a
+              in
+              let new_func_body = process_instr func.body
               in
               {func with body = new_func_body}
             )) w.funcs

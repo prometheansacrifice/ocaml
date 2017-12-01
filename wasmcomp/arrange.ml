@@ -249,7 +249,7 @@ let rec instr e =
     | CurrentMemory -> "current_memory", []
     | GrowMemory -> "grow_memory", []
     | Const lit -> constop lit ^ " " ^ value lit, []
-    | DelayedConst _ -> assert false
+    | DelayedConst s -> print_endline ("Did not resolve:" ^ s); assert false
     | Test op -> testop op, []
     | Compare op -> relop op, []
     | Unary op -> unop op, []

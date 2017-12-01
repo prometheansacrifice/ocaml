@@ -53,9 +53,9 @@ describe('functions', () => {
         expect(i32[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i32[0]).to.equal(4);
-        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(1, 9));
+        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
         expect(i32[0]).to.equal(1792);
-        expect(i32[1]).to.equal(21);
+        expect(i32[1]).to.equal(25);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1], i32[1] + 8));
         expect(i32[0]).to.equal(7 );
         let func = instance.exports.table.get(i32[0]);
@@ -73,9 +73,9 @@ describe('functions', () => {
         expect(i32[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i32[0]).to.equal(4);
-        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(1, 17));
+        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
         expect(i32[0]).to.equal(1792);
-        expect(i32[1]).to.equal(21);
+        expect(i32[1]).to.equal(25);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1] + 8, i32[1] + 16));
         expect(i32[0]).to.equal(7);
         let func = instance.exports.table.get(i32[0]);
@@ -94,9 +94,9 @@ describe('functions', () => {
         expect(i8[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i8[0]).to.equal(4);
-        var i32_ = new Uint32Array(instance.exports.memory.buffer.slice(1, 17));
+        var i32_ = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
         expect(i32_[0]).to.equal(1792);
-        expect(i32_[1]).to.equal(21);
+        expect(i32_[1]).to.equal(25);
 
         // the pointer to caml_curry2
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32_[1] + 0, i32_[1] + 4));
@@ -153,14 +153,14 @@ describe('exception handling', () => {
           instance.exports.camlException_handling__other_1006();
         } catch (pointer) {
           var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 64));
-          expect(i32[0]).to.equal(870);
+          expect(i32[0]).to.equal(874);
           expect(i32[1]).to.equal(1);
         }
         try {
           instance.exports.camlException_handling__other2_1008();
         } catch (pointer) {
           var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 8));
-          expect(i32[0]).to.equal(870);
+          expect(i32[0]).to.equal(874);
           expect(i32[1]).to.equal(3);
         }
 
@@ -184,11 +184,49 @@ describe('arithmetic', () => {
         // console.debug(1);
         expect(instance.exports.camlArithmetic__addi_1002(ocamlInt(5), ocamlInt(6))).to.equal(ocamlInt(11));
 // console.debug(2);
+
         expect(instance.exports.camlArithmetic__mini_1005(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(5));
-        // expect(instance.exports.camlArithmetic__divi_1008(ocamlInt(10), ocamlInt(5))).to.equal(jsInt(2));
-        expect(instance.exports.camlArithmetic__muli_1008(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(50));
-        // expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(10), ocamlInt(3))).to.equal(jsInt(1));
-        // expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(10), ocamlInt(3))).to.equal(jsInt(1));
+        expect(instance.exports.camlArithmetic__divi_1008(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(2));
+        expect(instance.exports.camlArithmetic__muli_1011(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(50));
+
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(1));
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(99), ocamlInt(3))).to.equal(ocamlInt(0));
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(101), ocamlInt(3))).to.equal(ocamlInt(2));
+
+        expect(instance.exports.camlArithmetic__land__1017(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(2));
+        expect(instance.exports.camlArithmetic__lor__1020(ocamlInt(4), ocamlInt(2))).to.equal(ocamlInt(6));
+        expect(instance.exports.camlArithmetic__lxor__1023(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(9));
+        expect(instance.exports.camlArithmetic__lsl__1026(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(20));
+        expect(instance.exports.camlArithmetic__lsr__1029(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(5));
+        expect(instance.exports.camlArithmetic__asr__1032(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(5));
+        done();
+      })
+      .catch(e => { done(e) })
+    })
+  });
+  describe('float', () => {
+    it ('should support basic arithmetic', done => {
+      fetchAndInstantiate("/base/test/arithmetic.wasm").then(instance => {
+        // console.debug(0);
+        expect(instance.exports.caml_program()).to.equal(1);
+        // console.debug(1);
+        expect(instance.exports.camlArithmetic__addi_1002(ocamlInt(5), ocamlInt(6))).to.equal(ocamlInt(11));
+  // console.debug(2);
+
+        expect(instance.exports.camlArithmetic__mini_1005(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(5));
+        expect(instance.exports.camlArithmetic__divi_1008(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(2));
+        expect(instance.exports.camlArithmetic__muli_1011(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(50));
+
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(1));
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(99), ocamlInt(3))).to.equal(ocamlInt(0));
+        expect(instance.exports.camlArithmetic__modi_1014(ocamlInt(101), ocamlInt(3))).to.equal(ocamlInt(2));
+
+        expect(instance.exports.camlArithmetic__land__1017(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(2));
+        expect(instance.exports.camlArithmetic__lor__1020(ocamlInt(4), ocamlInt(2))).to.equal(ocamlInt(6));
+        expect(instance.exports.camlArithmetic__lxor__1023(ocamlInt(10), ocamlInt(3))).to.equal(ocamlInt(9));
+        expect(instance.exports.camlArithmetic__lsl__1026(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(20));
+        expect(instance.exports.camlArithmetic__lsr__1029(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(5));
+        expect(instance.exports.camlArithmetic__asr__1032(ocamlInt(10), ocamlInt(1))).to.equal(ocamlInt(5));
         done();
       })
       .catch(e => { done(e) })
