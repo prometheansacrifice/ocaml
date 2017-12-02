@@ -179,6 +179,7 @@ type data_part =
 | Nativeint of nativeint
 | Int16 of int
 | Int8 of int
+| Float32 of F32.t
 
 type module_ =
 {

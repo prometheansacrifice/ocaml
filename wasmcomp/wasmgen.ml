@@ -218,24 +218,24 @@ let rec to_operations context (expression_list:expression list) operation =
       let align = 0 in
       let offset = 0l in
       let instr = Ast.Types.(match memory_chunk with
-      | Byte_unsigned -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)}
-      | Byte_signed -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
-      | Sixteen_unsigned -> Load {ty = I32Type; align; offset; sz = Some (Mem16, ZX)}
-      | Sixteen_signed -> Load {ty = I32Type; align; offset; sz = Some (Mem16, SX)}
-      | Thirtytwo_unsigned -> Load {ty = I32Type; align; offset; sz = None}
-      | Thirtytwo_signed -> Load {ty = I32Type; align; offset; sz = None}
-      | Word_int -> Load {ty = I32Type; align; offset; sz = None}
-      | Word_val -> Load {ty = I32Type; align; offset; sz = None}
-      | Single -> Load {ty = I32Type; align; offset; sz = None}
-      | Double -> Load {ty = F32Type; align; offset; sz = None} (* this is totally wrong but okay... *)
-      | Double_u -> Load {ty = F32Type; align; offset; sz = None})
+      | Byte_unsigned -> [Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)}]
+      | Byte_signed -> [Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}]
+      | Sixteen_unsigned -> [Load {ty = I32Type; align; offset; sz = Some (Mem16, ZX)}]
+      | Sixteen_signed -> [Load {ty = I32Type; align; offset; sz = Some (Mem16, SX)}]
+      | Thirtytwo_unsigned -> [Load {ty = I32Type; align; offset; sz = None}]
+      | Thirtytwo_signed -> [Load {ty = I32Type; align; offset; sz = None}]
+      | Word_int -> [Load {ty = I32Type; align; offset; sz = None}]
+      | Word_val -> [Load {ty = I32Type; align; offset; sz = None}]
+      | Single -> [Load {ty = I32Type; align; offset; sz = None}]
+      | Double -> [Load {ty = F32Type; align; offset; sz = None}] (* this is totally wrong but okay... *)
+      | Double_u -> [Load {ty = F32Type; align; offset; sz = None}])
       (* | Double -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
       | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       (* let var = bind_local context "load_instr" in *)
       print_endline ")";
-      expression_list @ [instr]
+      expression_list @ instr
       (* @ [TeeLocal var] *)
     )
   | Calloc, _ -> (
@@ -272,12 +272,20 @@ let rec to_operations context (expression_list:expression list) operation =
         | Cop (Capply _, _, _) -> failwith "Cop 1!"
         | Cop (Calloc, _, _) -> failwith "Cop 2!"
         | Cop (Cstore _, _, _) -> failwith "Cop 3!"
-        | Cop (Cabsf, el, _) -> (size + 4, to_operations context el Cabsf)
-        | Cop (Cnegf, el, _) -> (size + 4, to_operations context el Cnegf)
-        | Cop (Caddf, el, _) -> (size + 4, to_operations context el Caddf)
-        | Cop (Csubf, el, _) -> (size + 4, to_operations context el Csubf)
-        | Cop (Cmulf, el, _) -> (size + 4, to_operations context el Cmulf)
-        | Cop (Cdivf, el, _) -> (size + 4, to_operations context el Cdivf)
+        | Cop (Cabsf, el, _)
+        | Cop (Cnegf, el, _)
+        | Cop (Caddf, el, _)
+        | Cop (Csubf, el, _)
+        | Cop (Cmulf, el, _)
+        | Cop (Cdivf, el, _) ->
+          (size + 4,
+           calls @
+           [GetLocal local_;
+            Const (I32 (I32.of_int_s size));
+            Binary (I32 I32Op.Add)] @
+           emit_expr context f @
+           [Store {ty = Types.F32Type; align = 0; offset = 0l; sz = None}]
+          )
         | Cop _ -> failwith "Cop 4!"
         | Cifthenelse _ -> failwith "Cifthenelse!"
         | Cswitch _ -> failwith "Cswitch!"
@@ -298,26 +306,32 @@ let rec to_operations context (expression_list:expression list) operation =
        Const (I32 4l);
        Binary (I32 I32Op.Add)
       ]
+      @
+      (if !current_return_type = [F32Type] then
+          [Convert (F32 F32Op.ReinterpretInt)]
+        else
+          []
+      )
     )
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
     print_endline "Cstore";
     let align = 0 in
     let offset = 0l in
     let instr = Ast.Types.(match memory_chunk with
-    | Byte_unsigned -> Store {ty = I32Type; align; offset; sz = Some Mem8}
-    | Byte_signed -> Store {ty = I32Type; align; offset; sz = Some Mem8}
-    | Sixteen_unsigned -> Store {ty = I32Type; align; offset; sz = Some Mem16}
-    | Sixteen_signed -> Store {ty = I32Type; align; offset; sz = Some Mem16}
-    | Thirtytwo_unsigned -> Store {ty = I32Type; align; offset; sz = None}
-    | Thirtytwo_signed -> Store {ty = I32Type; align; offset; sz = None}
-    | Word_int -> Store {ty = I32Type; align; offset; sz = None}
-    | Word_val -> Store {ty = I32Type; align; offset; sz = None}
-    | Single -> Store {ty = F32Type; align; offset; sz = None}
-    | Double -> Store {ty = F32Type; align; offset; sz = None} (* this all seems rather wrong -> double is 64bit not 32... *)
-    | Double_u -> Store {ty = F32Type; align; offset; sz = None})
+    | Byte_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
+    | Byte_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
+    | Sixteen_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem16}]
+    | Sixteen_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem16}]
+    | Thirtytwo_unsigned -> [Store {ty = I32Type; align; offset; sz = None}]
+    | Thirtytwo_signed -> [Store {ty = I32Type; align; offset; sz = None}]
+    | Word_int -> [Store {ty = I32Type; align; offset; sz = None}]
+    | Word_val -> [Store {ty = I32Type; align; offset; sz = None}]
+    | Single -> [Store {ty = F32Type; align; offset; sz = None}]
+    | Double -> [Store {ty = F32Type; align; offset; sz = None}] (* this all seems rather wrong -> double is 64bit not 32... *)
+    | Double_u -> [Store {ty = F32Type; align; offset; sz = None}])
     in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
-    expression_list @ [instr]
+    expression_list @ instr
 
   | Cadda, [fst; snd]
   | Caddi, [fst; snd] ->
@@ -1082,8 +1096,12 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           offset := !offset + 4;
           ()
         )
-      | Csingle s -> print_string (" Csingle " ^ string_of_float s); ()
-      | Cdouble d -> print_string (" Cdouble " ^ string_of_float d); ()
+      | Csingle d
+      | Cdouble d -> (
+        init := !init @ [Float32 (F32.of_float d)];
+        offset := !offset + 4;
+        ()
+        )
       | Cstring s -> (
           init := !init @ [Ast.String s];
           (* TODO: get proper string length... *)

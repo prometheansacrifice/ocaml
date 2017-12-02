@@ -491,6 +491,7 @@ let encode m =
           cur + match add with
           | String s -> String.length s
           | Nativeint _
+          | Float32 _ -> 4
           | Int32 _ -> 4
           | Int16 _ -> 2
           | Int8 _ -> 1
@@ -499,6 +500,7 @@ let encode m =
       List.iter (fun f ->
         match f with
         | String bs -> put_string s bs
+        | Float32 f -> f32 f
         | Int32 i32 -> u32 i32
         | Nativeint ni -> u32 (Nativeint.to_int32 ni)
         | Int16 i -> u16 i
