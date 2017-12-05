@@ -57,7 +57,7 @@ describe('functions', () => {
         expect(i32[0]).to.equal(1792);
         expect(i32[1]).to.equal(25);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1], i32[1] + 8));
-        expect(i32[0]).to.equal(7 );
+        expect(i32[0]).to.equal(8);
         let func = instance.exports.table.get(i32[0]);
         const calculatedValue = func(ocamlInt(5));
         expect(jsInt(calculatedValue)).to.equal(20);
@@ -77,7 +77,7 @@ describe('functions', () => {
         expect(i32[0]).to.equal(1792);
         expect(i32[1]).to.equal(25);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1] + 8, i32[1] + 16));
-        expect(i32[0]).to.equal(7);
+        expect(i32[0]).to.equal(8);
         let func = instance.exports.table.get(i32[0]);
         const calculatedValue = func(ocamlInt(6), ocamlInt(20));
         expect(jsInt(calculatedValue)).to.equal(30);
@@ -100,7 +100,7 @@ describe('functions', () => {
 
         // the pointer to caml_curry2
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32_[1] + 0, i32_[1] + 4));
-        expect(i32[0]).to.equal(8);
+        expect(i32[0]).to.equal(9);
 
         // invoke caml_curry2
         let camlCurry2 = instance.exports.table.get(i32[0]);
@@ -175,13 +175,61 @@ describe('exception handling', () => {
   });
 });
 
+describe('tuple', () => {
+  describe('tuple', () => {
+    it ('should support tuples', done => {
+      fetchAndInstantiate("/base/test/tuple.wasm").then(instance => {
+        console.debug('A TUPLE...');
+      });
+    });
+  });
+});
+
+describe('switch', () => {
+  describe('switch', () => {
+    it ('should switch statements', done => {
+      fetchAndInstantiate("/base/test/switch.wasm").then(instance => {
+        console.debug('A SWITCH...');
+      })
+      .catch(e => { done(e) })
+    });
+  });
+});
+
+describe('array', () => {
+  describe('simple', () => {
+    it ('should retrieve an array value', done => {
+      fetchAndInstantiate("/base/test/array.wasm").then(instance => {
+        expect(instance.exports.caml_program()).to.equal(1);
+        expect(instance.exports.camlArray2__ala_1005()).to.equal(ocamlInt(10000000));
+        expect(instance.exports.camlArray2__bla_1008()).to.equal(ocamlInt(2));
+        try {
+          instance.exports.camlArray2__cla_1011();
+          done('should give an exception');
+        }
+        catch(pointer) {
+          expect(pointer).to.equal(185);
+        }
+        try {
+          instance.exports.camlArray2__dla_1014();
+          done('should give an exception');
+        }
+        catch(pointer) {
+          expect(pointer).to.equal(185);
+        }
+        done();
+      })
+      .catch(e => { done(e) })
+    });
+  });
+});
+
+
 describe('arithmetic', () => {
   describe('int', () => {
     it ('should support basic arithmetic', done => {
       fetchAndInstantiate("/base/test/arithmetic.wasm").then(instance => {
-        // console.debug(0);
         expect(instance.exports.caml_program()).to.equal(1);
-        // console.debug(1);
         expect(instance.exports.camlArithmetic__addi_1002(ocamlInt(5), ocamlInt(6))).to.equal(ocamlInt(11));
 
         expect(instance.exports.camlArithmetic__mini_1005(ocamlInt(10), ocamlInt(5))).to.equal(ocamlInt(5));
@@ -206,18 +254,26 @@ describe('arithmetic', () => {
   describe('float', () => {
     xit ('should support basic arithmetic', done => {
       fetchAndInstantiate("/base/test/arithmetic.wasm").then(instance => {
-        /* works, but tests need to be fixed */
-        expect(instance.exports.caml_program()).to.equal(1);
-
-        let alloc = instance.exports.table.get(3);
-        let addr = alloc(8);
-        const x = new Float32Array(instance.exports.memory.buffer.slice(0, 12));
-        x[addr] = 3;
-        x[addr + 1] = 2;
-
-        var pointer = instance.exports.camlArithmetic__divf_1043(addr, addr + 4);
-        const x2 = new Float32Array(instance.exports.memory.buffer.slice(pointer, pointer + 4));
-        console.debug('riiight:', x2[0]);
+        /* floats work, but tests need to be fixed - need to figure how one can access the memory from js */
+        //
+        //
+        //
+        // expect(instance.exports.caml_program()).to.equal(1);
+        //
+        // let alloc = instance.exports.table.get(3);
+        // let addr = alloc(8);
+        //
+        // const x = new Float32Array(instance.exports.memory.buffer.slice(addr, addr + 12));
+        // x[0] = 5;
+        // x[1] = 12;
+        //
+        // instance.exports.memory
+        // const x21 = new Float32Array(instance.exports.memory.buffer.slice(addr, addr + 12));
+        // console.debug('riiight1:', x21[0], x21[1], x21[2], x[0], x[1]);
+        //
+        // var pointer = instance.exports.camlArithmetic__divf_1043(addr, addr + 4);
+        // const x2 = new Float32Array(instance.exports.memory.buffer.slice(pointer, pointer + 4));
+        // console.debug('riiight:', x2[0]);
 
         done();
       })

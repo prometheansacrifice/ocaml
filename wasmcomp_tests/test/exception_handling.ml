@@ -6,11 +6,11 @@ type error =
 
 exception Exception of error
 
-let other a =
+let other (a: int) =
   (* print_endline (string_of_int a); *)
   raise (Exception Exception1)
 
-let other2 () =
+let other2 (b: int) =
   raise (Exception Exception2)
 
 (* let other3 () =
@@ -27,7 +27,7 @@ let foo b = (
     x * 12
   in
   (try
-    c := (otherthingy !c) + (other a * b);
+    c := (otherthingy !c) + (other2 a * b);
     !c
   with
   | Exception (Exception1) -> 300

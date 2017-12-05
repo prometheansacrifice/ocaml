@@ -77,7 +77,6 @@ let bind category space x =
   i
 
 let bind_local category (space:local_space) x value_type =
-  print_endline ("bind_local:" ^ x);
   if VarMap.mem x space.l_map then
     failwith ("Duplicate:" ^ x);
   let i = space.l_count in
@@ -180,7 +179,6 @@ type exception_fn = {
 
 let exception_fns:((exception_fn list) ref) = ref []
 let create_exception_function ?is_handler:(is_handler = false) ?exn_name (context:context) mem_pointer (name: string) (instr:expression) = (
-    (* properly store the locals info to restore later *)
     let fn_id = bind_func context name in
     let (st:((string * value_type) list) ref) = ref [] in
     VarMap.iter (fun key (value, t) -> st := !st @ [(key, t)]) context.locals.l_map;
@@ -197,24 +195,16 @@ let create_exception_function ?is_handler:(is_handler = false) ?exn_name (contex
     fn_id
 )
 
-
 let rec to_operations context (expression_list:expression list) operation =
   current_return_type := oper_result_type operation;
-  let result = (match operation, expression_list with
-  | Capply _, _ -> (
-    print_endline "!!! This apply is not handled correctly !!!";
-    []
-    )
-    (* | Cextcall of string * machtype * bool * label option *)
+  match operation, expression_list with
+  | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (s, mt, b, l), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       [Call (func context s)]
     )
-
-  (*  *)
   | Cload (memory_chunk, mutable_flag), _ -> (
-      print_endline "(cload";
       let align = 0 in
       let offset = 0l in
       let instr = Ast.Types.(match memory_chunk with
@@ -227,19 +217,13 @@ let rec to_operations context (expression_list:expression list) operation =
       | Word_int -> [Load {ty = I32Type; align; offset; sz = None}]
       | Word_val -> [Load {ty = I32Type; align; offset; sz = None}]
       | Single -> [Load {ty = I32Type; align; offset; sz = None}]
-      | Double -> [Load {ty = F32Type; align; offset; sz = None}] (* this is totally wrong but okay... *)
+      | Double -> [Load {ty = F32Type; align; offset; sz = None}]
       | Double_u -> [Load {ty = F32Type; align; offset; sz = None}])
-      (* | Double -> Load {ty = I32Type; align; offset; sz = Some (Mem8, SX)}
-      | Double_u -> Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)} *)
       in
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
-      (* let var = bind_local context "load_instr" in *)
-      print_endline ")";
       expression_list @ instr
-      (* @ [TeeLocal var] *)
     )
   | Calloc, _ -> (
-      print_endline "calloc";
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
@@ -314,7 +298,6 @@ let rec to_operations context (expression_list:expression list) operation =
       )
     )
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
-    print_endline "Cstore";
     let align = 0 in
     let offset = 0l in
     let instr = Ast.Types.(match memory_chunk with
@@ -332,7 +315,6 @@ let rec to_operations context (expression_list:expression list) operation =
     in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
     expression_list @ instr
-
   | Cadda, [fst; snd]
   | Caddi, [fst; snd] ->
     (emit_expr context fst) @
@@ -445,23 +427,60 @@ let rec to_operations context (expression_list:expression list) operation =
   | Cintoffloat, [fst] ->
     (emit_expr context fst) @
      [Convert (I32 I32Op.ReinterpretFloat)]
-  | Ccmpf Ceq, [fst; snd] -> failwith "Ccmpf"
-  | Ccmpf Cne, [fst; snd] -> failwith "Ccmpf"
-  | Ccmpf Clt, [fst; snd] -> failwith "Ccmpf"
-  | Ccmpf Cle, [fst; snd] -> failwith "Ccmpf"
-  | Ccmpf Cgt, [fst; snd] -> failwith "Ccmpf"
-  | Ccmpf Cge, [fst; snd] -> failwith "Ccmpf"
-  | Craise _, _->
-    print_endline ("no: " ^ string_of_int (List.length expression_list));
-    print_endline "not handled CRAISE"; []
-  | Ccheckbound, _ -> failwith "Ccheckbound"
-  | _ ->
-  failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
-  in
-  (match operation with
-  | Cstore _ -> print_endline "cstore yes"
-  | _ -> ());
-  result
+  | Ccmpf Ceq, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Eq)]
+  | Ccmpf Cne, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Ne)]
+  | Ccmpf Clt, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Lt)]
+  | Ccmpf Cle, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Le)]
+  | Ccmpf Cgt, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Gt)]
+  | Ccmpf Cge, [fst; snd] ->
+   (emit_expr context fst) @
+    (emit_expr context snd) @
+    [Compare (F32 F32Op.Ge)]
+  | Craise _, [arg] ->
+    (emit_expr context arg)
+    @
+    [Call (func context "jsRaise_i32_i32")]
+  | Ccheckbound, [fst; snd] -> (
+    let fst = (emit_expr context fst) in
+    let snd = (emit_expr context snd) in
+    let if_ = fst @ snd @ [Compare (I32 I32Op.LtS)] in
+    let else_ = snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
+
+    if_ @ [If ([], [
+      DelayedConst "caml_exn_Invalid_argument";
+      Call (func context "jsRaise_i32_unit");
+    ],else_ @ [If ([], [
+        DelayedConst "caml_exn_Invalid_argument";
+        Call (func context "jsRaise_i32_unit");
+      ], [])])]
+
+    (* let e = emit_expr context e) *)
+
+    (*
+    let i = emit_expr context if_ in
+    let t = emit_expr context then_ in
+    let return_ = !current_return_type in
+    let e = emit_expr context else_ in
+    current_return_type := return_;
+    i @ [If (return_, t, e)]
+    *)
+    )
+  | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list))
 and emit_expr (context:context) (expression:expression) =
   match expression with
   | Cconst_int i -> [Const (I32 (I32.of_int_s i))]
@@ -484,11 +503,8 @@ and emit_expr (context:context) (expression:expression) =
       let res = data context symbol in
       [Const (I32 res)]
     with
-    | _ -> (
-      (* TODO: resolve this at a later point... *)
-      print_endline ("TODO: " ^ symbol);
-      [DelayedConst symbol]
-    )
+    (* we have no idea what it is, so we resolve it when we do *)
+    | _ -> [DelayedConst symbol]
     )
   | Cconst_pointer i -> (current_return_type := [I32Type]; [Const (I32 (I32.of_int_s i))])
   | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
@@ -499,25 +515,16 @@ and emit_expr (context:context) (expression:expression) =
       [GetLocal var]
     )
     with
-    | _ -> (
-      print_endline ("Coult not find Cvar:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp);
-      []
-    ))
+    | _ -> failwith ("Could not find Cvar:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp))
   | Clet (ident, arg, fn_body) -> (
-    print_endline "(clet ";
     current_locals := !current_locals @ [Types.I32Type];
     let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) I32Type in
-
-    (* print_endline ("let id:" ^ (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) ^ " -> " ^ Int32.to_string let_id); *)
-
     let result = emit_expr context arg in
     let result = if result = [] then (
-      print_endline "Clet - not handled action !!!";
-      []
+      failwith "Clet - not handled action !!!";
     )
     else result
     in
-    print_endline ")";
     let result = result
     @
     [SetLocal let_id]
@@ -529,7 +536,6 @@ and emit_expr (context:context) (expression:expression) =
   | Cassign _ -> failwith "Cassign" (* setlocal??? *)
   | Ctuple  _ -> failwith "Ctuple" (* memory *)
   | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (
-    print_endline "capply 1";
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
@@ -553,23 +559,14 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (
     try (
-      print_endline ("looking for: " ^ hd);
-      print_endline ("CALL cop capply: " ^ hd ^ "=" ^ (Int32.to_string (func context hd)));
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
       expression_list @
       [Call (func context hd)] )
       with | _ ->
-      print_endline "Apply: Something did go wrong here...";
-      []
-    )
-  | Cop (Craise _, [arg], _) -> (
-
-      (emit_expr context arg)
-      @
-      [Call (func context "jsRaise")]
+      failwith "Apply: Something did go wrong here..."
     )
   | Cop (operation, expression_list, _) -> to_operations context expression_list operation
-  | Csequence (expression1, expression2) -> (print_endline "sequence"; (emit_expr context expression1) @ (emit_expr context expression2))
+  | Csequence (e1, e2) -> (emit_expr context e1) @ (emit_expr context e2)
   | Cifthenelse (if_, then_, else_) ->
     let i = emit_expr context if_ in
     let t = emit_expr context then_ in
@@ -579,12 +576,20 @@ and emit_expr (context:context) (expression:expression) =
     i @ [If (return_, t, e)]
   | Cswitch  _ -> failwith "Cswitch"
   | Cloop  _ -> failwith "Cloop"
-  | Ccatch  _ -> print_endline "Not handled yet: Ccatch"; []
+  | Ccatch  (rf, l, withHandler) -> (
+    (* skip the rec_flag for now.. *)
+      List.iter (fun (i, il, _) ->
+        print_endline ("ccatch: i:" ^ string_of_int i);
+        List.iter (fun il2 ->
+          print_endline ("ccatch: il:" ^ il2.Ident.name);
+        ) il;
+      ) l;
+      failwith "ccatch"
+    )
+   (* rec_flag * (int * Ident.t list * expression) list * expression *)
   | Cexit  _ -> failwith "Cexit"
   | Ctrywith  (body, exn, handler) ->
     (
-      print_endline (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp);
-
       let memory_alloc_size = ref 0 in
       VarMap.iter (fun key (value, t) ->
         match t with
@@ -638,15 +643,12 @@ and emit_expr (context:context) (expression:expression) =
             )
           | _ -> assert false
       ) context.locals.l_map;
-
       let body_fn_id = create_exception_function context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") body in
       let exn_name = (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp) in
       let handler_fn_id = create_exception_function ~is_handler:true ~exn_name context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") handler in
       current_return_type := [I32Type];
       !store_instructions @
       !set_blocks @
-
-
       [
       GetLocal alloc_memory_pointer;
       Const (I32 body_fn_id);
@@ -686,19 +688,17 @@ let setup_helper_functions () = (
   in
   ignore(bind_data context "caml_globals_inited" 0l);
   ignore(bind_data context "caml_backtrace_pos" 1l);
-  (* ignore(bind_data context "caml_backtrace_pos" 0l); *)
   global_offset := !global_offset + 5;
 
   let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
   let empty_type = Types.FuncType ([], []) in
-
-(* jsTryWithType; *)
-  let types = [ jsTryWithType; type_; empty_type] in
-
+  let raise_i32_unit = Types.FuncType ([Types.I32Type], []) in
+  let types = [ jsTryWithType; type_; empty_type; raise_i32_unit] in
   let jsTryWithType_ = bind_type context "jsTryWithType" jsTryWithType in
   let type__ftype = bind_type context "type_" type_ in
   let empty_ftype = bind_type context "empty_type" empty_type in
+  let raise_i32_ftype = bind_type context "raise_i32_ftype" raise_i32_unit in
 
   let imports = [
     {
@@ -710,6 +710,11 @@ let setup_helper_functions () = (
       module_name = name "js";
       item_name = name "raise";
       idesc = FuncImport type__ftype
+    };
+    {
+      module_name = name "js";
+      item_name = name "raise";
+      idesc = FuncImport raise_i32_ftype
     };
     {
       module_name = name "js";
@@ -753,17 +758,14 @@ let setup_helper_functions () = (
   ]
   in
   ignore(bind_func context "jsTryWith");
-  ignore(bind_func context "jsRaise");
+  ignore(bind_func context "jsRaise_i32_i32");
+  ignore(bind_func context "jsRaise_i32_unit");
   ignore(bind_func context "caml_fresh_oo_id");
   ignore(bind_func context "allocate_memory");
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
   ignore(bind_func context "camlStd_exit__entry");
   let exports = [
-  (* {
-    name = name "call_1";
-    edesc = FuncExport call_1_id;
-  }; *)
   {
     name = name "table";
     edesc = TableExport 0l;
@@ -774,7 +776,7 @@ let setup_helper_functions () = (
   }
   ]
   in
-  let tables = [{ttype = TableType ({min = 7l; max = Some 7l}, AnyFuncType)}]
+  let tables = [{ttype = TableType ({min = 8l; max = Some 8l}, AnyFuncType)}]
   in
   let elems = [
     {
@@ -811,6 +813,11 @@ let setup_helper_functions () = (
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 6))];
       init=[6l]
+    };
+    {
+      index = 0l;
+      offset=[Const (I32 (I32.of_int_s 7))];
+      init=[7l]
     }
   ]
   in
@@ -859,7 +866,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
       | [|Addr|]
       | [|Int|] -> I32Type
       | [|Float|] -> F32Type
-      | _ -> failwith "wait what..."
+      | _ -> failwith "Unexpected combination of machtypes"
       in
       ignore(bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) value_type);
       args := [Types.I32Type] @ !args;
@@ -961,8 +968,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
       fun_body
     )
     in
-    let body = body @ fun_body
-    in
+    let body = body @ fun_body in
     let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
     let locals = ref []
@@ -984,14 +990,13 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let inserted = ref false in
     List.iteri (fun i f -> (
       (* TODO: add a check for the 2 - which should match the imports *)
-      if (i + 3 == Int32.to_int func_id) then (
+      if (i + 4 == Int32.to_int func_id) then (
         funcs_ := !funcs_ @ [result; f];
         inserted := true;
       ) else (
         funcs_ := !funcs_ @ [f]
       )
     )) w.funcs;
-    (* correctly update the funcs index also... *)
 
     if (not !inserted) then (
       funcs_ := !funcs_ @ [result]
@@ -1021,7 +1026,6 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
         }]
       }
     ));
-
     add_exception_functions ppf;
     ())
   | Cdata dl -> (
@@ -1041,15 +1045,12 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
         | _ ->(
           bind_func context symbol
         )
-
-          in
-          print_endline ("SYMBOL:" ^ symbol ^ " = " ^ (Int32.to_string symbol_id));
-          init := !init @ [Int32 symbol_id];
-          offset := !offset + 4;
-          ()
+        in
+        init := !init @ [Int32 symbol_id];
+        offset := !offset + 4;
+        ()
         )
       | Cdefine_symbol symbol ->  (
-          print_endline ("\n-> SYMBOL:" ^ symbol);
           try (
             ignore(bind_data context symbol (I32.of_int_u (start_offset + !offset)));
             let w = !wasm_module in
@@ -1057,6 +1058,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
               let rec process_instr a = List.map (fun f ->
                 match f with
                 | DelayedConst s when s = symbol -> (
+                  print_endline ("BOOM:" ^ symbol ^ " = " ^ string_of_int (start_offset + !offset));
                   Const (I32 (I32.of_int_u (start_offset + !offset)))
                 )
                 | Block (s, i) -> Block (s, process_instr i)
@@ -1108,8 +1110,10 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           offset := !offset + (String.length s);
           ()
         )
-      | Cskip i -> print_string (" Cskip " ^ string_of_int i); ()
-      | Calign i ->  print_string (" Calign " ^ string_of_int i); ()
+      | Cskip i ->
+          print_string (" Cskip " ^ string_of_int i); ()
+      | Calign i ->
+          print_string (" Calign " ^ string_of_int i); ()
     ) dl;
     let w = !wasm_module in
 
