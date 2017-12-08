@@ -94,7 +94,7 @@ type instr =
   | CurrentMemory                     (* size of linear memory *)
   | GrowMemory                        (* grow linear memory *)
   | Const of literal                  (* constant *)
-  | DelayedConst of string            (* constant *)
+  | DelayedConst of string            (* a constant that is resolved at a later point *)
   | Test of testop                    (* numeric test *)
   | Compare of relop                  (* numeric comparison *)
   | Unary of unop                     (* unary numeric operator *)

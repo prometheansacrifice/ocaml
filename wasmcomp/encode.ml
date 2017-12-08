@@ -218,7 +218,6 @@ let encode m =
       | Const (F64 c) -> op 0x44; f64 c
 
       | DelayedConst _ -> assert false
-
       | Test (I32 I32Op.Eqz) -> op 0x45
       | Test (I64 I64Op.Eqz) -> op 0x50
       | Test (F32 _) -> assert false

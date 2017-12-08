@@ -25,8 +25,9 @@ module VarMap = Map.Make(String)
 
 type space = {mutable map : int32 VarMap.t; mutable count : int32}
 
-
 type local_space = {mutable l_map : (int32 * value_type) VarMap.t; mutable l_count : int32}
+
+type block_stack = string Stack.t
 
 let empty () = {map = VarMap.empty; count = 0l}
 
@@ -41,6 +42,8 @@ let empty_context () =
   { data = empty (); types = empty_types (); tables = empty (); memories = empty ();
     funcs = empty (); locals = empty_locals(); globals = empty ();
     labels = VarMap.empty }
+
+let block_stack : block_stack = Stack.create ()
 
 let lookup category space x =
   VarMap.find x space.map
@@ -116,11 +119,10 @@ let func (c : context) x =
   with
     | Not_found -> failwith ("Not found function:" ^ x)
 
-let current_locals = ref []
 let current_return_type = ref []
 
 let enter_func (c : context) = (
-  current_locals := [];
+  print_endline "crt - enter_func = []";
   current_return_type := [];
   {c with labels = VarMap.empty; locals = empty_locals()}
 )
@@ -196,8 +198,7 @@ let create_exception_function ?is_handler:(is_handler = false) ?exn_name (contex
 )
 
 let rec to_operations context (expression_list:expression list) operation =
-  current_return_type := oper_result_type operation;
-  match operation, expression_list with
+  let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (s, mt, b, l), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
@@ -278,7 +279,6 @@ let rec to_operations context (expression_list:expression list) operation =
         | Cconst_natpointer _ -> failwith "Cconst_natpointer!"
         ) (0, []) expression_list
       in
-      current_locals := !current_locals @ [Types.I32Type];
       [Const (I32 (I32.of_int_s size));
        Call (func context "allocate_memory");
        SetLocal local_
@@ -290,16 +290,11 @@ let rec to_operations context (expression_list:expression list) operation =
        Const (I32 4l);
        Binary (I32 I32Op.Add)
       ]
-      @
-      (if !current_return_type = [F32Type] then
-          [Convert (F32 F32Op.ReinterpretInt)]
-        else
-          []
-      )
     )
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
     let align = 0 in
     let offset = 0l in
+    let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
     let instr = Ast.Types.(match memory_chunk with
     | Byte_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
     | Byte_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
@@ -313,7 +308,7 @@ let rec to_operations context (expression_list:expression list) operation =
     | Double -> [Store {ty = F32Type; align; offset; sz = None}] (* this all seems rather wrong -> double is 64bit not 32... *)
     | Double_u -> [Store {ty = F32Type; align; offset; sz = None}])
     in
-    let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
+    current_return_type := [];
     expression_list @ instr
   | Cadda, [fst; snd]
   | Caddi, [fst; snd] ->
@@ -468,58 +463,84 @@ let rec to_operations context (expression_list:expression list) operation =
         DelayedConst "caml_exn_Invalid_argument";
         Call (func context "jsRaise_i32_unit");
       ], [])])]
-
-    (* let e = emit_expr context e) *)
-
-    (*
-    let i = emit_expr context if_ in
-    let t = emit_expr context then_ in
-    let return_ = !current_return_type in
-    let e = emit_expr context else_ in
-    current_return_type := return_;
-    i @ [If (return_, t, e)]
-    *)
     )
-  | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list))
+  | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
+  in
+  print_endline "crt - to_operations = oper_result_type";
+  current_return_type := oper_result_type operation;
+  result
 and emit_expr (context:context) (expression:expression) =
   match expression with
-  | Cconst_int i -> [Const (I32 (I32.of_int_s i))]
-  | Cconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cconst_float s -> [Const (F32 (F32.of_float s))]
+  | Cconst_int i ->
+    print_endline "crt - emit_expr = cconst_int";
+    current_return_type := [I32Type];
+    [Const (I32 (I32.of_int_s i))]
+  | Cconst_natint i ->
+    print_endline "crt - emit_expr = cconst_natint";
+    current_return_type := [I32Type];
+    [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cconst_float s ->
+    print_endline "crt - emit_expr = cconst_float";
+    current_return_type := [F32Type];
+    [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
     (
     try
-      let (res, _) = local context symbol in
+      let (res, t) = local context symbol in
+      print_endline "crt - emit_expr = cconst_symbol - 1";
+      current_return_type := [t];
       [Call res]
     with
     | _ -> try
+      print_endline "crt - emit_expr = cconst_symbol - 2";
+      current_return_type := [I32Type];
       [Call (global context symbol)]
     with
     | _ -> try (
+      print_endline "crt - emit_expr = cconst_symbol - 3";
       [Call (func context symbol)]
     )
     with
     | _ -> try
       let res = data context symbol in
+      print_endline "crt - emit_expr = cconst_symbol - 4";
+      current_return_type := [I32Type];
       [Const (I32 res)]
     with
     (* we have no idea what it is, so we resolve it when we do *)
-    | _ -> [DelayedConst symbol]
+    | _ -> ( print_endline "crt - emit_expr = cconst_symbol - 5";[DelayedConst symbol] )
     )
-  | Cconst_pointer i -> (current_return_type := [I32Type]; [Const (I32 (I32.of_int_s i))])
-  | Cconst_natpointer  _ -> failwith "Cconst_natpointer"
-  | Cblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Cconst_pointer i ->
+    current_return_type := [I32Type];
+    print_endline "crt - emit_expr = Cconst_pointer ";
+    [Const (I32 (I32.of_int_s i))]
+  | Cconst_natpointer i ->
+    current_return_type := [I32Type];
+    print_endline "crt - emit_expr = Cconst_narpointer ";
+    [Const (I32 (Nativeint.to_int32 i))]
+  | Cblockheader (i, _) ->
+    current_return_type := [I32Type];
+    print_endline "crt - emit_expr = Cblockheader ";
+    [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
     (try (
-      let (var, _) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
+      let (var, t) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
+      print_endline "crt - emit_expr = cvar ";
+      current_return_type := [t];
       [GetLocal var]
     )
     with
-    | _ -> failwith ("Could not find Cvar:" ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp))
+    | _ ->
+      failwith ("Cvar not found: " ^ ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp)
+    )
   | Clet (ident, arg, fn_body) -> (
-    current_locals := !current_locals @ [Types.I32Type];
-    let let_id = bind_local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) I32Type in
+    let binding_name = ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp in
+    let let_id = bind_local context binding_name I32Type in
     let result = emit_expr context arg in
+    current_return_type := [];
+    print_endline "crt - emit_expr = clet - empty ";
+    let body = emit_expr context fn_body in
+
     let result = if result = [] then (
       failwith "Clet - not handled action !!!";
     )
@@ -529,12 +550,20 @@ and emit_expr (context:context) (expression:expression) =
     @
     [SetLocal let_id]
     @
-    emit_expr context fn_body
+    body
     in
     result
     )
-  | Cassign _ -> failwith "Cassign" (* setlocal??? *)
-  | Ctuple  _ -> failwith "Ctuple" (* memory *)
+  | Cassign (i, e) -> ( (* not tested yet, might be wrong... *)
+      let (l, _) = local context (i.Ident.name ^ "_" ^ string_of_int i.Ident.stamp) in
+      let e = emit_expr context e in
+      current_return_type := [];
+      print_endline "crt - emit_expr = cassign - empty ";
+      e @
+      [SetLocal l]
+    )
+  | Ctuple el ->
+    List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] el
   | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
@@ -565,29 +594,89 @@ and emit_expr (context:context) (expression:expression) =
       with | _ ->
       failwith "Apply: Something did go wrong here..."
     )
-  | Cop (operation, expression_list, _) -> to_operations context expression_list operation
-  | Csequence (e1, e2) -> (emit_expr context e1) @ (emit_expr context e2)
+  | Cop (operation, expression_list, _) ->
+    to_operations context expression_list operation
+  | Csequence (e1, e2) ->
+    let a = (emit_expr context e1) in
+    print_endline "CSEQUENCE1";
+    let b = (emit_expr context e2) in
+    print_endline "CSEQUENCE2";
+    a @ b
   | Cifthenelse (if_, then_, else_) ->
+    print_endline "crt - emit_expr = cifthenelse - empty ";
+    Stack.push "ifthenelse" block_stack;
     let i = emit_expr context if_ in
+    current_return_type := [];
     let t = emit_expr context then_ in
-    let return_ = !current_return_type in
+    (* let return_ = !current_return_type in *)
     let e = emit_expr context else_ in
-    current_return_type := return_;
-    i @ [If (return_, t, e)]
-  | Cswitch  _ -> failwith "Cswitch"
-  | Cloop  _ -> failwith "Cloop"
-  | Ccatch  (rf, l, withHandler) -> (
-    (* skip the rec_flag for now.. *)
-      List.iter (fun (i, il, _) ->
-        print_endline ("ccatch: i:" ^ string_of_int i);
-        List.iter (fun il2 ->
-          print_endline ("ccatch: il:" ^ il2.Ident.name);
-        ) il;
-      ) l;
-      failwith "ccatch"
+    (* current_return_type := return_; *)
+    print_endline "crt - emit_expr = cifthenelse - return ";
+    ignore(Stack.pop block_stack);
+    i @ [If (!current_return_type, t, e)]
+  | Cswitch  (sw, ia, ea, _) -> (
+
+    let rec create_block ints remaining =
+      match ints, remaining with
+      | i :: re, expr :: rest -> (
+        current_return_type := [];
+        print_endline "crt - emit_expr = ccatch - empty ";
+        Stack.push (string_of_int i) block_stack;
+        let child_block = create_block re rest in
+        let e = child_block @ emit_expr context expr in
+        ignore(Stack.pop block_stack);
+        [Block (!current_return_type, e)]
+      )
+      | [], [] -> (
+        current_return_type := [];
+        print_endline "crt - emit_expr = ccatch - empty 2";
+        let tb = BrTable ((List.map (fun f -> Int32.of_int f) (Array.to_list ia)), 1l) in
+        let e = emit_expr context sw in
+        [Block(!current_return_type, [Block (!current_return_type, [tb] @ e); Unreachable])]
+      )
+      | _ -> failwith "Should not happen..."
+    in create_block (Array.to_list ia) (Array.to_list ea)
+    )
+  | Cloop e ->
+    print_endline "crt - emit_expr = cloop - empty ";
+    Stack.push "loop" block_stack;
+    let expr = emit_expr context e in
+    ignore(Stack.pop block_stack);
+    let expr = expr @ [Br 0l] in
+    [Loop ([], expr)]
+  | Ccatch  (rf, with_, body) -> (
+    let rec create_block remaining =
+      match remaining with
+      | (i, il, expr) :: rest -> (
+        current_return_type := [];
+        print_endline "crt - emit_expr = ccatch - empty ";
+        Stack.push (string_of_int i) block_stack;
+        let child_block = create_block rest in
+        let e = child_block @ emit_expr context expr in
+        ignore(Stack.pop block_stack);
+        [Block (!current_return_type, e)]
+      )
+      | [] ->
+        current_return_type := [];
+        print_endline "crt - emit_expr = ccatch - empty 2";
+        let e = emit_expr context body in
+        [Block (!current_return_type, e)]
+    in create_block with_
     )
    (* rec_flag * (int * Ident.t list * expression) list * expression *)
-  | Cexit  _ -> failwith "Cexit"
+  | Cexit (i, el) ->
+    (
+      let position = ref 0 in
+      let result = ref [] in
+      Stack.iter (fun str ->
+        position := !position + 1;
+        if str = string_of_int i then (
+          result := [Br (Int32.of_int !position)]
+        )
+      ) block_stack;
+      List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] el @
+      !result
+    )
   | Ctrywith  (body, exn, handler) ->
     (
       let memory_alloc_size = ref 0 in
@@ -904,8 +993,8 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let rec remove_last_unit fun_body =
       match fun_body with
       | Csequence (expr1, Cconst_pointer 1) -> (
-        expr1
-        )
+        print_endline ("removed for: " ^ fun_name);
+        expr1)
       | Csequence (expr1, Csequence (a, b)) -> Csequence (expr1, remove_last_unit (Csequence (a, b)))
       | _ -> fun_body
     in
@@ -951,12 +1040,14 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     (
       match !current_return_type, locals with
       | [I32Type], Some _ ->
+      print_endline "C";
         current_return_type := [];
         let (mp, _) = local context "mem_pointer" in
         [GetLocal mp] @
         fun_body @
         [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
       | [F32Type], Some _ ->
+      print_endline "D";
         current_return_type := [];
         let (mp, _) = local context "mem_pointer" in
         [GetLocal mp] @
@@ -1058,7 +1149,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
               let rec process_instr a = List.map (fun f ->
                 match f with
                 | DelayedConst s when s = symbol -> (
-                  print_endline ("BOOM:" ^ symbol ^ " = " ^ string_of_int (start_offset + !offset));
+                  (* print_endline ("BOOM:" ^ symbol ^ " = " ^ string_of_int (start_offset + !offset)); *)
                   Const (I32 (I32.of_int_u (start_offset + !offset)))
                 )
                 | Block (s, i) -> Block (s, process_instr i)
@@ -1112,8 +1203,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
         )
       | Cskip i ->
           print_string (" Cskip " ^ string_of_int i); ()
-      | Calign i ->
-          print_string (" Calign " ^ string_of_int i); ()
+      | Calign i -> ()
     ) dl;
     let w = !wasm_module in
 

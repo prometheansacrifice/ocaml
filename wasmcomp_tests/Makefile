@@ -11,9 +11,9 @@ build:
 	../ocamlopt -wasm test/curried_function.ml -o test/curried_function.wasm
 	../ocamlopt -wasm test/noncurried_function.ml -o test/noncurried_function.wasm
 	../ocamlopt -wasm test/exception_handling.ml -o test/exception_handling.wasm
-	../ocamlopt -wasm test/tuple.ml -o test/tuple.wasm
 	../ocamlopt -wasm test/array2.ml -o test/array.wasm
-	# ../ocamlopt -wasm test/switch.ml -o test/switch.wasm
+	../ocamlopt -wasm test/switch.ml -o test/switch.wasm
+	../ocamlopt -wasm test/loop.ml -o test/loop.wasm
 	# ../ocamlopt -wasm test/crud.ml -o test/crud.wasm
 	../ocamlopt -wasm test/arithmetic.ml -o test/arithmetic.wasm
 	# run the test

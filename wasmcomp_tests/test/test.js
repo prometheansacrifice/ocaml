@@ -175,12 +175,15 @@ describe('exception handling', () => {
   });
 });
 
-describe('tuple', () => {
-  describe('tuple', () => {
-    it ('should support tuples', done => {
-      fetchAndInstantiate("/base/test/tuple.wasm").then(instance => {
-        console.debug('A TUPLE...');
-      });
+describe('loop', () => {
+  describe('loop', () => {
+    it ('should loop', done => {
+      fetchAndInstantiate("/base/test/loop.wasm").then(instance => {
+        expect(instance.exports.caml_program()).to.equal(1);
+        expect(instance.exports.camlLoop__a_1002(ocamlInt(3))).to.equal(ocamlInt(3000));
+        done();
+      })
+      .catch(e => { console.debug('OH NO LOOP:', e); done(e); })
     });
   });
 });
@@ -189,7 +192,10 @@ describe('switch', () => {
   describe('switch', () => {
     it ('should switch statements', done => {
       fetchAndInstantiate("/base/test/switch.wasm").then(instance => {
-        console.debug('A SWITCH...');
+        expect(instance.exports.caml_program()).to.equal(1);
+        console.debug(instance.exports.camlSwitch__a_1009(1, 0));
+        console.debug(instance.exports.camlSwitch__a_1009(1, 1));
+        console.debug(instance.exports.camlSwitch__a_1009(1, 2));
       })
       .catch(e => { done(e) })
     });
