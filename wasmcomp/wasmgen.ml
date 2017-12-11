@@ -630,9 +630,15 @@ and emit_expr (context:context) (expression:expression) =
       | [], [] -> (
         current_return_type := [];
         print_endline "crt - emit_expr = ccatch - empty 2";
-        let tb = BrTable ((List.map (fun f -> Int32.of_int f) (Array.to_list ia)), 1l) in
+
+        Stack.push (string_of_int (Array.length ia + 1)) block_stack;
+        Stack.push (string_of_int (Array.length ia + 2)) block_stack;
+        let tb = BrTable ((List.map (fun f -> Int32.of_int (2 + f)) (Array.to_list ia)), 1l) in
         let e = emit_expr context sw in
-        [Block(!current_return_type, [Block (!current_return_type, [tb] @ e); Unreachable])]
+        let result = [Block(!current_return_type, [Block (!current_return_type, [Const (I32 2l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])]);] in
+        ignore(Stack.pop block_stack);
+        ignore(Stack.pop block_stack);
+        result
       )
       | _ -> failwith "Should not happen..."
     in create_block (Array.to_list ia) (Array.to_list ea)
@@ -645,8 +651,7 @@ and emit_expr (context:context) (expression:expression) =
     let expr = expr @ [Br 0l] in
     [Loop ([], expr)]
   | Ccatch  (rf, with_, body) -> (
-    let rec create_block remaining =
-      match remaining with
+    let rec create_block = function
       | (i, il, expr) :: rest -> (
         current_return_type := [];
         print_endline "crt - emit_expr = ccatch - empty ";
@@ -661,20 +666,66 @@ and emit_expr (context:context) (expression:expression) =
         print_endline "crt - emit_expr = ccatch - empty 2";
         let e = emit_expr context body in
         [Block (!current_return_type, e)]
-    in create_block with_
+    in
+    let blocks = create_block with_ in
+    let temp_local = ref (-1l) in
+    let rec fix_blocks depth result = function
+    | Block (rt, el) :: remaining -> (
+        if (depth = -1 && List.length rt > 0) then (
+          let counter = !unique_name_counter in
+          unique_name_counter := !unique_name_counter + 1;
+          temp_local := bind_local context ("return_value_" ^ string_of_int counter) (List.nth rt 0)
+        );
+        fix_blocks depth (result @ [Block ([], fix_blocks (depth + 1) [] el)]) remaining
+      )
+    | If (crt, t, e) :: remaining -> (
+        fix_blocks depth (result @ [If ([], fix_blocks (depth + 1) [] t, fix_blocks (depth + 1) [] e)]) remaining
+      )
+    | Loop ([], e) :: remaining -> (
+      fix_blocks depth (result @ [Loop ([], fix_blocks (depth + 1) [] e)]) remaining
+      )
+    | _ as item :: remaining -> (
+      let add = (match item with
+      | BrTable _
+      | Br _ -> []
+      | _ ->
+        if List.length remaining = 0 then (
+            [SetLocal !temp_local; Br (Int32.of_int depth)]
+          )
+          else
+            []
+        )
+      in
+      fix_blocks depth (result @ [item] @ add) remaining
+    )
+    | [] -> result
+    in
+    let f = (fix_blocks (-1) [] blocks) in
+    let x = if !temp_local <> (-1l) then
+      [GetLocal !temp_local]
+    else
+      []
+    in
+    f @ x
+    (*
+      - iterate through blocks
+      - turn return values into set_locals
+      - get_local at the end
+      - insert br in non cexit blocks
+    *)
+
     )
    (* rec_flag * (int * Ident.t list * expression) list * expression *)
-  | Cexit (i, el) ->
+  | Cexit (i, _) -> (* no idea when the elements are produced... so ignore for now *)
     (
       let position = ref 0 in
       let result = ref [] in
       Stack.iter (fun str ->
         position := !position + 1;
         if str = string_of_int i then (
-          result := [Br (Int32.of_int !position)]
+          result := [Br (Int32.of_int (!position - 1))]
         )
       ) block_stack;
-      List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] el @
       !result
     )
   | Ctrywith  (body, exn, handler) ->
@@ -777,7 +828,11 @@ let setup_helper_functions () = (
   in
   ignore(bind_data context "caml_globals_inited" 0l);
   ignore(bind_data context "caml_backtrace_pos" 1l);
-  global_offset := !global_offset + 5;
+  ignore(bind_data context "the_void" 0l);
+
+  (* pointers to data must be ((pointer land 1) = 0) *)
+
+  global_offset := !global_offset + 6;
 
   let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
@@ -1141,7 +1196,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
         offset := !offset + 4;
         ()
         )
-      | Cdefine_symbol symbol ->  (
+      | Cdefine_symbol symbol -> (
           try (
             ignore(bind_data context symbol (I32.of_int_u (start_offset + !offset)));
             let w = !wasm_module in
@@ -1149,7 +1204,6 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
               let rec process_instr a = List.map (fun f ->
                 match f with
                 | DelayedConst s when s = symbol -> (
-                  (* print_endline ("BOOM:" ^ symbol ^ " = " ^ string_of_int (start_offset + !offset)); *)
                   Const (I32 (I32.of_int_u (start_offset + !offset)))
                 )
                 | Block (s, i) -> Block (s, process_instr i)
@@ -1170,6 +1224,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           ()
         )
       | Cint8 i -> (
+          print_endline ("\t - cint8 - " ^ string_of_int i);
           init := !init @ [Int8 i];
           offset := !offset + 1;
           ()
@@ -1208,6 +1263,9 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let w = !wasm_module in
 
     global_offset := !global_offset + !offset;
+
+    (* to make sure that this is always seen as data and not an integer *)
+    (if !global_offset land 1 <> 0 then global_offset := !global_offset + 1);
     wasm_module := Ast.{w with data = w.data @ [{
       index =  0l;
       offset = [Const (I32 (I32.of_int_s start_offset))];

@@ -53,9 +53,9 @@ describe('functions', () => {
         expect(i32[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i32[0]).to.equal(4);
-        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
+        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(6, 14));
         expect(i32[0]).to.equal(1792);
-        expect(i32[1]).to.equal(25);
+        expect(i32[1]).to.equal(26);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1], i32[1] + 8));
         expect(i32[0]).to.equal(8);
         let func = instance.exports.table.get(i32[0]);
@@ -73,9 +73,9 @@ describe('functions', () => {
         expect(i32[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i32[0]).to.equal(4);
-        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
+        var i32 = new Uint32Array(instance.exports.memory.buffer.slice(6, 14));
         expect(i32[0]).to.equal(1792);
-        expect(i32[1]).to.equal(25);
+        expect(i32[1]).to.equal(26);
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32[1] + 8, i32[1] + 16));
         expect(i32[0]).to.equal(8);
         let func = instance.exports.table.get(i32[0]);
@@ -94,9 +94,9 @@ describe('functions', () => {
         expect(i8[0]).to.equal(0);
         expect(instance.exports.caml_program()).to.equal(1);
         expect(i8[0]).to.equal(4);
-        var i32_ = new Uint32Array(instance.exports.memory.buffer.slice(5, 13));
+        var i32_ = new Uint32Array(instance.exports.memory.buffer.slice(6, 14));
         expect(i32_[0]).to.equal(1792);
-        expect(i32_[1]).to.equal(25);
+        expect(i32_[1]).to.equal(26);
 
         // the pointer to caml_curry2
         var i32 = new Uint32Array(instance.exports.memory.buffer.slice(i32_[1] + 0, i32_[1] + 4));
@@ -153,20 +153,18 @@ describe('exception handling', () => {
           instance.exports.camlException_handling__other_1006();
         } catch (pointer) {
           var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 64));
-          expect(i32[0]).to.equal(874);
+          expect(i32[0]).to.equal(882);
           expect(i32[1]).to.equal(1);
         }
         try {
           instance.exports.camlException_handling__other2_1008();
         } catch (pointer) {
           var i32 = new Uint32Array(instance.exports.memory.buffer.slice(pointer + 0, pointer + 8));
-          expect(i32[0]).to.equal(874);
+          expect(i32[0]).to.equal(882);
           expect(i32[1]).to.equal(3);
         }
 
         expect(instance.exports.camlException_handling__foo_1207(55)).to.equal(ocamlInt(500));
-
-        // expect(jsInt(instance.exports.camlException_handling__foo_1208(ocamlInt(10)))).to.equal(384);
 
         done();
       })
@@ -180,10 +178,10 @@ describe('loop', () => {
     it ('should loop', done => {
       fetchAndInstantiate("/base/test/loop.wasm").then(instance => {
         expect(instance.exports.caml_program()).to.equal(1);
-        expect(instance.exports.camlLoop__a_1002(ocamlInt(3))).to.equal(ocamlInt(3000));
+        expect(instance.exports.camlLoop__a_1002(ocamlInt(3))).to.equal(ocamlInt(2950));
         done();
       })
-      .catch(e => { console.debug('OH NO LOOP:', e); done(e); })
+      .catch(done)
     });
   });
 });
@@ -193,9 +191,20 @@ describe('switch', () => {
     it ('should switch statements', done => {
       fetchAndInstantiate("/base/test/switch.wasm").then(instance => {
         expect(instance.exports.caml_program()).to.equal(1);
-        console.debug(instance.exports.camlSwitch__a_1009(1, 0));
-        console.debug(instance.exports.camlSwitch__a_1009(1, 1));
-        console.debug(instance.exports.camlSwitch__a_1009(1, 2));
+        expect(instance.exports.camlSwitch__small_switch_test1_1015()).to.equal(ocamlInt(222))
+        expect(instance.exports.camlSwitch__small_switch_test2_1018()).to.equal(ocamlInt(70))
+
+        expect(instance.exports.camlSwitch__big_switch_test1_1021()).to.equal(ocamlInt(222))
+        expect(instance.exports.camlSwitch__big_switch_test2_1024()).to.equal(ocamlInt(70));
+        expect(instance.exports.camlSwitch__big_switch_test3_1027()).to.equal(ocamlInt(20));
+        expect(instance.exports.camlSwitch__big_switch_test4_1030()).to.equal(ocamlInt(22));
+
+        expect(instance.exports.camlSwitch__big_switch_test5_1033()).to.equal(ocamlInt(30));
+        expect(instance.exports.camlSwitch__big_switch_test6_1036()).to.equal(ocamlInt(70));
+        expect(instance.exports.camlSwitch__big_switch_test7_1039()).to.equal(ocamlInt(40));
+        expect(instance.exports.camlSwitch__big_switch_test8_1042()).to.equal(ocamlInt(70));
+
+        done();
       })
       .catch(e => { done(e) })
     });
@@ -214,14 +223,14 @@ describe('array', () => {
           done('should give an exception');
         }
         catch(pointer) {
-          expect(pointer).to.equal(185);
+          expect(pointer).to.equal(186);
         }
         try {
           instance.exports.camlArray2__dla_1014();
           done('should give an exception');
         }
         catch(pointer) {
-          expect(pointer).to.equal(185);
+          expect(pointer).to.equal(186);
         }
         done();
       })
