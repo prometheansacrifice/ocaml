@@ -167,6 +167,9 @@ let compile_unit _output_prefix asm_filename keep_asm
       then raise(Error(Assembler_error asm_filename));
       if create_asm && not keep_asm then remove_file asm_filename
     )
+    else (
+      Sys.rename "temp_file.wasm" obj_filename;
+    )
   with exn ->
     remove_file obj_filename;
     raise exn
@@ -178,12 +181,22 @@ let set_export_info (ulambda, prealloc, structured_constants, export) =
 let end_gen_implementation ?toplevel ppf
     (clambda:clambda_and_constants) =
   if !wasm then (
-
+    Wasmgen.reset ();
     Emit.begin_assembly ();
     Wasmgen.setup_helper_functions ();
     clambda
     ++ Profile.record "cmm" Cmmgen.compunit
-    ++ Profile.record "compile_phrases" (List.iter (Wasmgen.compile_wasm_phrase ppf))
+    ++ Profile.record "compile_phrases" (List.iter (Wasmgen.compile_wasm_phrase ppf));
+    Wasmgen.turn_missing_functions_to_imports ();
+    let wasm_module = !Wasmgen.wasm_module in
+    Print_wat.module_ stdout 80 wasm_module;
+    let s = Encode.encode wasm_module in
+    let output_name = "temp_file.wasm"
+    in
+    let oc = open_out_bin output_name in
+    output_string oc s;
+    close_out oc;
+    Emit.end_assembly ()
   ) else (
     Emit.begin_assembly ();
     clambda
@@ -251,6 +264,12 @@ let lambda_gen_implementation ?toplevel ppf
 
 let compile_implementation_gen ?toplevel prefixname
     ~required_globals ppf gen_implementation program =
+
+  let ext_obj = if !Clflags.wasm then
+    ".wasmo"
+  else
+    ext_obj
+  in
   let asmfile =
     if !keep_asm_file || !Emitaux.binary_backend_available
     then prefixname ^ ext_asm

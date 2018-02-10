@@ -76,7 +76,7 @@ let func_type (c : context) x =
   with Failure _ ->
     failwith "Failure"
 
-let context = empty_context ()
+let context = ref (empty_context ())
 
 let bind category space x =
   if VarMap.mem x space.map then
@@ -102,7 +102,10 @@ let bind_local category (space:local_space) x value_type =
 let bind_type (c : context) x ty =
   c.types.list <- c.types.list @ [ty];
   bind "type" c.types.space x
-let bind_func (c : context) x = bind "function" c.funcs x
+
+let bind_func (c : context) x = (
+  bind "function" c.funcs x
+)
 let bind_local (c : context) name value_type = bind_local "local" c.locals name value_type
 let bind_data (c : context) x i = (
   let space = c.data in
@@ -139,7 +142,7 @@ let enter_func (c : context) = (
 
 let unique_name_counter = ref 0
 
-let global_id = bind_global context "global_offset"
+let global_id = bind_global !context "global_offset"
 
 (* the resulting wasm module *)
 let wasm_module = ref {
@@ -159,6 +162,84 @@ let wasm_module = ref {
   imports = [];
   exports = [];
 }
+
+let reset () = (
+  wasm_module := {
+    types = [];
+    globals = [];
+    tables = Types.[{
+      ttype = TableType ({min = 0l; max = Some 0l}, AnyFuncType)
+    }];
+    memories = Types.[{
+      (* TODO: this needs to be improved when doing GC *)
+      mtype = MemoryType {min = 100l; max = Some 100l}
+    }];
+    funcs = [];
+    start = None;
+    elems = [];
+    data = [];
+    imports = [];
+    exports = [];
+  };
+  context := empty_context ();
+  current_return_type := [];
+)
+
+let name s =
+  try Utf8.decode s with Utf8.Utf8 ->
+    failwith "invalid UTF-8 encoding"
+
+let turn_missing_functions_to_imports () = (
+  let context = !context in
+  let w = !wasm_module in
+  let result = VarMap.filter Ast.(fun key value ->
+    let result = ref true in
+    List.iteri (fun index _ ->
+      if (index = Int32.to_int value) then
+        result := false
+    ) w.imports;
+    not (List.exists (fun (f:Ast.func) -> f.name = key) w.funcs) && !result
+  ) context.funcs.map in
+
+  let imports = ref [] in
+  let highest_value = ref 0l in
+  VarMap.iter (fun key value ->
+    (* create a temp empty type... *)
+    let empty_type = Types.FuncType ([], []) in
+    let empty_ftype = bind_type context ("empty_type_" ^ key) empty_type in
+    let w = !wasm_module in
+    wasm_module := Ast.{w with types = w.types @ [empty_type]};
+    imports := !imports @ [{
+      module_name = name "linking";
+      item_name = name key;
+      idesc = FuncImport empty_ftype
+    }];
+    highest_value := value;
+    ()
+  ) result;
+  let nr_of_added_imports  = List.length !imports in
+  let w = !wasm_module in
+  wasm_module := Ast.{w with imports = w.imports @ !imports};
+  let handle_instructions instr =
+    match instr with
+    | Call i when (Int32.to_int i) < (Int32.to_int !highest_value) -> Call (Int32.of_int (Int32.to_int i + nr_of_added_imports))
+    | _ -> instr
+  in
+  let handle_export export =
+    match export.edesc with
+    | FuncExport i when (Int32.to_int i) < (Int32.to_int !highest_value) ->  {export with edesc = FuncExport (Int32.of_int (Int32.to_int i + nr_of_added_imports))}
+    | FuncExport i -> export
+    | _ -> export
+  in
+  let w = !wasm_module in
+  wasm_module := Ast.{w with funcs = List.mapi (fun index func ->
+      {func with
+        body = List.map handle_instructions func.body
+      }
+    ) w.funcs;
+    exports = List.map handle_export w.exports
+  };
+)
 
 let oper_result_type = function
   | Capply _ -> [I32Type]
@@ -584,12 +665,12 @@ and emit_expr (context:context) (expression:expression) =
     [CallIndirect ftype]
     )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (
+    let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
+    expression_list @
     try (
-      let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
-      expression_list @
       [Call (func context hd)] )
       with | _ ->
-      failwith "Apply: Something did go wrong here..."
+      [Call (bind_func context hd)]
     )
   | Cop (operation, expression_list, _) ->
     to_operations context expression_list operation
@@ -778,11 +859,9 @@ and emit_expr (context:context) (expression:expression) =
 
 let global_offset = ref 0
 
-let name s =
-  try Utf8.decode s with Utf8.Utf8 ->
-    failwith "invalid UTF-8 encoding"
 
 let setup_helper_functions () = (
+  let context = !context in
   let globals = [{
     gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
     value = [Const (I32 (I32.of_int_s 0))]
@@ -840,10 +919,30 @@ let setup_helper_functions () = (
       module_name = name "js";
       item_name = name "caml_fresh_oo_id";
       idesc = FuncImport type__ftype
-    }
+    };
+    {
+      module_name = name "linking";
+      item_name = name "allocate_memory";
+      idesc = FuncImport type__ftype
+    };
+    {
+      module_name = name "linking";
+      item_name = name "camlCamlinternalFormatBasics__entry";
+      idesc = FuncImport empty_ftype
+    };
+    {
+      module_name = name "linking";
+      item_name = name "camlPervasives__entry";
+      idesc = FuncImport empty_ftype
+    };
+    {
+      module_name = name "linking";
+      item_name = name "camlStd_exit__entry";
+      idesc = FuncImport empty_ftype
+    };
   ]
   in
-  let funcs = [
+  (* let funcs = [
     {
       name = "allocate_memory";
       ftype = type__ftype;
@@ -880,7 +979,7 @@ let setup_helper_functions () = (
       body = []
     }
   ]
-  in
+  in *)
   ignore(bind_func context "jsTryWith");
   ignore(bind_func context "jsRaise_i32_i32");
   ignore(bind_func context "jsRaise_i32_unit");
@@ -900,7 +999,7 @@ let setup_helper_functions () = (
   }
   ]
   in
-  let tables = [{ttype = TableType ({min = 8l; max = Some 8l}, AnyFuncType)}]
+  let tables = [{ttype = TableType ({min = 5l; max = Some 5l}, AnyFuncType)}]
   in
   let elems = [
     {
@@ -928,7 +1027,7 @@ let setup_helper_functions () = (
       offset=[Const (I32 (I32.of_int_s 4))];
       init=[4l]
     };
-    {
+    (* {
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 5))];
       init=[5l]
@@ -942,11 +1041,11 @@ let setup_helper_functions () = (
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 7))];
       init=[7l]
-    }
+    } *)
   ]
   in
   let w = !wasm_module in
-  wasm_module := Ast.{w with funcs = funcs;
+  wasm_module := Ast.{w with
               globals = globals;
               types = types;
               data = data;
@@ -977,6 +1076,7 @@ let rec add_exception_functions ppf = (
 )
 and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
   ignore(ppf);
+  let context = !context in
   match p with
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
     let context = enter_func context in
@@ -1112,7 +1212,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let inserted = ref false in
     List.iteri (fun i f -> (
       (* TODO: add a check for the 2 - which should match the imports *)
-      if (i + 4 == Int32.to_int func_id) then (
+      if (i + (List.length w.imports) == Int32.to_int func_id) then (
         funcs_ := !funcs_ @ [result; f];
         inserted := true;
       ) else (
@@ -1155,6 +1255,11 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let start_offset = !global_offset in
     (* let data_id = ref 0l in *)
     let offset = ref 0 in
+    let is_closure =
+      (match (List.nth dl 0) with
+      | Cint i when (((Nativeint.to_int i) land 255) == 247) -> true
+      | _ -> false)
+    in
     List.iter (function
       | Cglobal_symbol s -> ()
       | Csymbol_address symbol -> (
@@ -1165,7 +1270,10 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           data context symbol
         with
         | _ ->(
-          bind_func context symbol
+          if is_closure then (
+            bind_func context symbol)
+          else
+            bind_data context symbol (-1l) (* no idea where we will find this data yet *)
         )
         in
         init := !init @ [Int32 symbol_id];

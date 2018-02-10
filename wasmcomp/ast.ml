@@ -81,6 +81,7 @@ type instr =
   | BrTable of var list * var         (* indexed break *)
   | Return                            (* break from function body *)
   | Call of var                       (* call function *)
+  | Link of string                    (* used to link later on *)
   | CallIndirect of var               (* call function through table *)
   | Drop                              (* forget a value *)
   | Select                            (* branchless conditional *)
