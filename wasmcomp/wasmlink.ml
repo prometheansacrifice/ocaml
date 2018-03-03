@@ -107,6 +107,8 @@ let add_ccobjs origin l =
   end
 
 let runtime_lib () =
+  []
+  (* TODO: make this work again
   let libname =
     if !Clflags.gprofile
     then "libasmrunp" ^ ext_lib
@@ -115,7 +117,7 @@ let runtime_lib () =
     if !Clflags.nopervasives then []
     else [ find_in_path !load_path libname ]
   with Not_found ->
-    raise(Error(File_not_found libname))
+    raise(Error(File_not_found libname)) *)
 
 let object_file_name name =
   let file_name =
@@ -271,11 +273,11 @@ let make_startup_file ppf units_list =
     compile_wasm_phrase (Cmmgen.spacetime_shapes all_names);
   end;
   Wasmgen.turn_missing_functions_to_imports ();
+  Wasmgen.create_symbol_table ();
   let wasm_module = !Wasmgen.wasm_module in
   Print_wat.module_ stdout 80 wasm_module;
   let s = Encode.encode wasm_module in
-  let output_name = "temp_file.wasm"
-  in
+  let output_name = "temp_file.wasm" in
   let oc = open_out_bin output_name in
   output_string oc s;
   close_out oc;
@@ -327,348 +329,7 @@ let link_shared ppf objfiles output_name =
     remove_file startup_obj
   )
 
-type fmapping = W1 | W2
-let concat_wasm w1 w2 = Ast.(
-  let new_wasm = ref {
-    types = [];
-    globals = [];
-    tables = Types.[{
-      ttype = TableType ({min = 0l; max = Some 0l}, AnyFuncType)
-    }];
-    memories = Types.[{
-      (* TODO: this needs to be improved when doing GC *)
-      mtype = MemoryType {min = 100l; max = Some 100l}
-    }];
-    funcs = [];
-    start = None;
-    elems = [];
-    data = [];
-    imports = [];
-    exports = [];
-  }
-  in
-  let w1_type_mapping = ref [] in
-  let w2_type_mapping = ref [] in
-  let w1_global_mapping = ref [] in
-  let w2_global_mapping = ref [] in
-  let w1_func_mapping = ref [] in
-  let w2_func_mapping = ref [] in
-  let func_mapping = ref [] in
-  (* let w1_data_mapping = ref [] in
-  let w2_data_mapping = ref [] in *)
-  let find_type type_ =
-    let w = !new_wasm in
-    let result = ref (-1) in
-    List.iteri (fun i t ->
-      if (t = type_) then
-        result := i
-    ) w.types;
-    !result
-  in
-  let add_type type_ =
-    let w = !new_wasm in
-    let existing_type_loc = find_type type_ in
-    if existing_type_loc > -1 then
-      existing_type_loc
-    else (
-      new_wasm := {w with types = w.types @ [type_]};
-      List.length w.types
-    )
-  in
-  let add_w1_type type_ =
-    w1_type_mapping := !w1_type_mapping @ [add_type type_]
-  in
-  let add_w2_type type_ =
-    w2_type_mapping := !w2_type_mapping @ [add_type type_]
-  in
-  let find_global global =
-    let w = !new_wasm in
-    let result = ref (-1) in
-    List.iteri (fun i g ->
-      if (g = global) then
-        result := i
-    ) w.globals;
-    !result
-  in
-  let add_global global =
-    let w = !new_wasm in
-    let existing_global_loc = find_global global in
-    if existing_global_loc > -1 then
-      existing_global_loc
-    else (
-      new_wasm := {w with globals = w.globals @ [global]};
-      List.length w.globals
-    )
-  in
-  let add_w1_global global =
-    w1_global_mapping := !w1_global_mapping @ [add_global global]
-  in
-  let add_w2_global global =
-    w2_global_mapping := !w2_global_mapping @ [add_global global]
-  in
-  let find_import import =
-    let w = !new_wasm in
-    let result = ref (-1) in
-    List.iteri (fun i im ->
-      if im = import then
-        result := i
-    ) w.imports;
-    !result
-  in
-  let add_import import =
-    let w = !new_wasm in
-    let existing_import = find_import import in
-    if (existing_import > -1) then
-      existing_import
-    else (
-      new_wasm := {w with imports = w.imports @ [import]};
-      List.length w.imports
-    )
-  in
-  let add_w1_import import =
-    w1_func_mapping := !w1_func_mapping @ [add_import import]
-  in
-  let add_w2_import import =
-    w2_func_mapping := !w2_func_mapping @ [add_import import]
-  in
-  let find_func func =
-    let w = !new_wasm in
-    let result = ref (-1) in
-    List.iteri (fun i f ->
-      if f = func then
-        result := i
-    ) w.funcs;
-    !result
-  in
-  let find_func_by_name func_name =
-    let w = !new_wasm in
-    let result = ref (-1) in
-    List.iteri (fun i (f:Ast.func) ->
-      if f.name = func_name then
-        result := i
-    ) w.funcs;
-    !result
-  in
-  let add_func func =
-    let w = !new_wasm in
-    let existing_func = find_func func in
-    if (existing_func > -1)  then (
-      existing_func
-    )
-    else (
-      new_wasm := {w with funcs = w.funcs @ [func]};
-      List.length w.funcs + List.length w.imports
-    )
-  in
-  let add_w1_func func =
-    w1_func_mapping := !w1_func_mapping @ [add_func func];
-    func_mapping := !func_mapping @ [W1]
-  in
-  let add_w2_func func =
-    w2_func_mapping := !w2_func_mapping @ [add_func func];
-    func_mapping := !func_mapping @ [W2]
-  in
-  let remove_import import other_loc =
-    print_endline ("move import " ^ Ast.string_of_name import.item_name ^ " to " ^ string_of_int other_loc ^ ": ");
-    let w = !new_wasm in
-    let import_pos = ref (-1) in
-    List.iteri (fun i im ->
-      if (im = import) then (
-        import_pos := i
-      )
-    ) w.imports;
-    let ip = !import_pos in
-    let fix_pos fi =
-      if fi < ip then
-        (print_endline ("- stay the same:" ^ string_of_int fi);
-        fi)
-      else if fi = ip then
-        (print_endline ("- move to new location:" ^ string_of_int fi ^ " becomes: " ^ string_of_int other_loc);
-        other_loc)
-      else
-        (print_endline ("- minus one:" ^ string_of_int fi);
-         fi - 1)
-    in
-    w1_func_mapping := List.map fix_pos !w1_func_mapping;
-    w2_func_mapping := List.map fix_pos !w2_func_mapping
-  in
-  let remove_linking_imports () = (
-    let w = !new_wasm in
-    let fixed_imports = List.filter (fun i ->
-      if (i.module_name = (Wasmgen.name "linking")) then (
-        let func_pos = find_func_by_name (Ast.string_of_name i.item_name) in
-        if func_pos > -1 then (
-          remove_import i func_pos;
-          false
-        ) else (
-          true
-        )
-      ) else (
-          true
-      )
-    ) w.imports
-    in
-    new_wasm := {
-      w with imports = fixed_imports
-    }
-  )
-  in
-  let func_with_names ast = (
-    let imports_length = List.length ast.imports in
-    List.mapi (fun i (func:Ast.func) ->
-      print_endline ("looking for the name of: " ^ string_of_int (i + imports_length));
-      let pos = Int32.of_int (i + imports_length) in
-      let item = List.find (fun e -> e.edesc = FuncExport pos) ast.exports in
-      print_endline ("found:" ^ Ast.string_of_name item.name);
-      { func with name = Ast.string_of_name item.name }
-    ) ast.funcs
-  )
-  in
-  let rec fix_instr (ft: int list) (f: int list) result = function
-    | Block (s, il) :: remaining -> fix_instr ft f (result @ [Block (s, fix_instr ft f [] il)]) remaining
-    | Loop (s, il) :: remaining -> fix_instr ft f (result @ [Loop (s, fix_instr ft f [] il)]) remaining
-    | If (crt, t, e) :: remaining -> fix_instr ft f (result @ [If (crt, fix_instr ft f [] t, fix_instr ft f [] e)]) remaining
-    | Call v :: remaining ->
-      let mi = List.nth f (Int32.to_int v) in
-      fix_instr ft f (result @ [Call (Int32.of_int mi)]) remaining
-    | (CallIndirect t) :: remaining ->
-      let mt = List.nth ft (Int32.to_int t) in
-      fix_instr ft f (result @ [CallIndirect (Int32.of_int mt)]) remaining
-    | _ as item :: remaining -> (fix_instr ft f (result @ [item]) remaining)
-    | [] -> result
-  in
-  let fix_functions () = (
-    (* BY THE POWER OF GRAYSKULL FIX THE FUNCTIONS. *)
-    let w = !new_wasm in
-    List.iteri (fun i f -> print_endline ("-a:" ^ string_of_int i ^ ", " ^ string_of_int f)) !w1_type_mapping;
-    List.iteri (fun i f -> print_endline ("-b:" ^ string_of_int i ^ ", " ^ string_of_int f)) !w2_type_mapping;
-    new_wasm := {w with
-      funcs = List.mapi (fun i func ->
-        let func_map = List.nth !func_mapping i in
-        let (ft, f) = match func_map with
-        | W1 -> (!w1_type_mapping, !w1_func_mapping)
-        | W2 -> (!w2_type_mapping, !w2_func_mapping)
-        in
-        {func with
-          body = fix_instr ft f [] func.body;
-          ftype = Int32.of_int (List.nth ft (Int32.to_int func.ftype))
-        }
-      ) w.funcs
-    }
-  )
-  in
-  print_endline "concatting wasm files...";
-  print_endline "types...";
-  List.iter add_w1_type w1.types;
-  List.iter add_w2_type w2.types;
-  print_endline "globals...";
-  List.iter add_w1_global w1.globals;
-  List.iter add_w2_global w2.globals;
-  print_endline "imports...";
-  List.iter add_w1_import w1.imports;
-  List.iter add_w2_import w2.imports;
-  print_endline "add functions...";
-  List.iter add_w1_func (func_with_names w1);
-  print_endline "add functions... 2";
-  List.iter add_w2_func (func_with_names w2);
-  print_endline "Remove linking imports";
-  remove_linking_imports ();
-  print_endline "Fix functions";
-  fix_functions ();
-  print_endline "mkay";
-
-
-  (* ignore(w1);
-  let has_export ast _name = List.filter (fun e ->
-    match e with
-    | ({name; edesc = FuncExport _ }) when _name = name -> true
-    | _ -> false) ast.exports
-  in
-  let func_types = ref [] in
-  let add_func_type to_ast from_ast type_ =
-    let old_var = ref (-1l) in
-    List.iteri (fun i t ->
-      if t == type_ then (
-        old_var := Int32.of_int i
-      )
-    ) from_ast.types;
-    let to_ast = {to_ast with types = to_ast.types @ [type_]} in
-    let new_var = Int32.of_int (List.length to_ast.types) in
-    func_types := !func_types @ [(
-      !old_var, new_var
-    )];
-    to_ast
-  in
-  let rec change_instr_vars changed_vars changed_types result = function
-    | Block (s, il) :: remaining -> change_instr_vars changed_vars changed_types (result @ [Block (s, change_instr_vars changed_vars changed_types [] il)]) remaining
-    | Loop (s, il) :: remaining -> change_instr_vars changed_vars changed_types (result @ [Loop (s, change_instr_vars changed_vars changed_types [] il)]) remaining
-    | If (crt, t, e) :: remaining -> change_instr_vars changed_vars changed_types (result @ [If (crt, change_instr_vars changed_vars changed_types [] t, change_instr_vars changed_vars changed_types [] e)]) remaining
-    | Call v :: remaining ->
-      let call = List.find_opt (fun (o, _) -> o = v) changed_vars in
-      let c = match call with
-      | Some (_, n) -> [Call n]
-      | None -> [Call v]
-      in
-      change_instr_vars changed_vars changed_types (result @ c) remaining
-    | Const (Values.I32 v) :: (CallIndirect t) :: remaining ->
-      let var = List.find_opt (fun (o, _) -> o = v) changed_vars in
-      let fn_id = (match var with
-      | Some (_, n) -> [Const (Values.I32 n)]
-      | None -> [Const (Values.I32 v)])
-      in
-      let ft = List.find_opt (fun (o, _) -> o = t) changed_types in
-      let call_ft = match ft with
-      | Some (_, n) -> [CallIndirect n]
-      | None -> [CallIndirect t]
-      in
-      change_instr_vars changed_vars changed_types (result @ fn_id @ call_ft) remaining
-    | _ as item :: remaining -> (change_instr_vars changed_vars changed_types (result @ [item]) remaining)
-    | [] -> result
-  in
-  List.iter(fun f -> ignore(change_instr_vars [] [] [] f.body)) w1.funcs;
-  let add_imports ast imports =
-    (* TODO: remove import duplicates *)
-    let changed_fns = List.mapi (fun i _ -> (Int32.of_int i, Int32.of_int (i + (List.length imports)))) ast.funcs in
-
-    {ast with
-      imports = ast.imports @ imports;
-      funcs = List.map (fun f -> {f with body = change_instr_vars changed_fns !func_types [] f.body}) ast.funcs
-    }
-  in
-  let add_functions ast il funcs =
-    (* we expect the funcs start from 0 so...*)
-    let changed_fns = List.mapi (fun i _ ->
-      (Int32.of_int (il + i), Int32.of_int (i + il + (List.length ast.funcs + List.length ast.imports)))
-    ) funcs in
-    let funcs = List.map (fun func ->
-      let ft = List.find_opt (fun (o, _) -> o = func.ftype) !func_types in
-      let ft = match ft with
-      | Some (_, n) -> n
-      | None -> failwith "Can't find func type in func_types"
-      in
-      {func with
-        body = change_instr_vars changed_fns !func_types [] func.body;
-        ftype = ft
-      }) funcs
-    in
-    {ast with
-      funcs = ast.funcs @ funcs
-    }
-  in
-
-  (*let remove_import ast =
-    ignore(ast);
-    ()
-  in *)
-  let w1 = List.fold_left (fun cur f -> add_func_type cur w2 f) w1 w2.types in
-  let w1 = add_imports w1 w2.imports in
-  let w1 = add_functions w1 (List.length (w2.imports)) w2.funcs in
-  List.iter (fun _ -> print_endline "WOOORD" ) (has_export w2 (Wasmgen.name "caml_curry2"));
-  w1 *)
-  !new_wasm
-)
-
-let call_wasm_linker file_list startup_file output_name =
+(* let call_wasm_linker file_list startup_file output_name =
   (* link the existing wasm files together, startup first... *)
   ignore(output_name);
   let existing_files = List.filter Sys.file_exists file_list
@@ -687,7 +348,115 @@ let call_wasm_linker file_list startup_file output_name =
   let s = Encode.encode wasm_file in
   let oc = open_out_bin output_name in
   output_string oc s;
-  close_out oc
+  close_out oc *)
+
+let command cmdline =
+  if !Clflags.verbose then begin
+    prerr_string "+ ";
+    prerr_string cmdline;
+    prerr_newline()
+  end;
+  Sys.command cmdline
+
+let build_diversion lst =
+  let (responsefile, oc) = Filename.open_temp_file "camlresp" "" in
+  List.iter (fun f -> Printf.fprintf oc "%s\n" f) lst;
+  close_out oc;
+  at_exit (fun () -> Misc.remove_file responsefile);
+  "@" ^ responsefile
+
+let quote_files lst =
+  let lst = List.filter (fun f -> f <> "") lst in
+  let quoted = List.map Filename.quote lst in
+  let s = String.concat " " quoted in
+  if String.length s >= 4096 && Sys.os_type = "Win32"
+  then build_diversion quoted
+  else s
+
+let quote_prefixed pr lst =
+  let lst = List.filter (fun f -> f <> "") lst in
+  let lst = List.map (fun f -> pr ^ f) lst in
+  quote_files lst
+
+let remove_Wl cclibs =
+  cclibs |> List.map (fun cclib ->
+    (* -Wl,-foo,bar -> -foo bar *)
+    if String.length cclib >= 4 && "-Wl," = String.sub cclib 0 4 then
+      String.map (function ',' -> ' ' | c -> c)
+                 (String.sub cclib 4 (String.length cclib - 4))
+    else cclib)
+
+let wasm_lld_linker mode output_name files extra = (
+  print_endline "wasm lld linker...";
+  ignore(mode);
+  let cmd =
+    (* if mode = Ccomp.Partial then *)
+      let l_prefix =
+        match Config.ccomp_type with
+        | "msvc" -> "/libpath:"
+        | _ -> "-L"
+      in
+      Printf.printf "%s%s %s %s %s"
+        "lld -flavor wasm "
+        (Filename.quote output_name)
+        (quote_prefixed l_prefix !Config.load_path)
+        (quote_files (remove_Wl files))
+        extra;
+
+      Printf.sprintf "%s%s %s %s %s"
+        "lld -flavor wasm "
+        (Filename.quote output_name)
+        (quote_prefixed l_prefix !Config.load_path)
+        (quote_files (remove_Wl files))
+        extra
+    (* else
+      (print_endline Config.mkexe;
+      Printf.sprintf "%s -o %s %s %s %s %s %s %s"
+        (match !Clflags.c_compiler, mode with
+        | Some cc, _ -> cc
+        | None, Ccomp.Exe -> print_endline "exe"; Config.mkexe
+        | None, Ccomp.Dll -> Config.mkdll
+        | None, Ccomp.MainDll -> Config.mkmaindll
+        | None, Ccomp.Partial -> assert false
+        )
+        (Filename.quote output_name)
+        (if !Clflags.gprofile then Config.cc_profile else "")
+        ""  (*(Clflags.std_include_flag "-I")*)
+        (quote_prefixed "-L" !Config.load_path)
+        (String.concat " " (List.rev !Clflags.all_ccopts))
+        (quote_files files)
+        extra) *)
+  in
+  command cmd = 0
+)
+
+let call_wasm_linker file_list startup_file output_name =
+  let main_dll = !Clflags.output_c_object
+                 && Filename.check_suffix output_name Config.ext_dll
+  and main_obj_runtime = !Clflags.output_complete_object
+  in
+  let files = startup_file :: (List.rev file_list) in
+  let libunwind =
+    if not Config.spacetime then []
+    else if not Config.libunwind_available then []
+    else String.split_on_char ' ' Config.libunwind_link_flags
+  in
+  let files, c_lib =
+    if (not !Clflags.output_c_object) || main_dll || main_obj_runtime then
+      files @ (List.rev !Clflags.ccobjs) @ runtime_lib () @ libunwind,
+      (if !Clflags.nopervasives || main_obj_runtime
+       then "" else Config.native_c_libraries)
+    else
+      files, ""
+  in
+  let mode =
+    if main_dll then Ccomp.MainDll
+    else if !Clflags.output_c_object then Ccomp.Partial
+    else Ccomp.Exe
+  in
+  let files = List.filter Sys.file_exists files in
+  if not (wasm_lld_linker mode output_name files c_lib)
+  then raise(Error Linking_error)
 
 let call_linker file_list startup_file output_name =
   let main_dll = !Clflags.output_c_object
@@ -749,7 +518,7 @@ let link ppf objfiles output_name =
       Asmgen.compile_unit output_name
         startup !Clflags.keep_startup_file startup_obj
         (fun () -> make_startup_file ppf units_tolink);
-
+      print_endline "OKAYYY...";
       let wasm_module = call_wasm_linker (List.map object_file_name objfiles) startup_obj output_name in
       ignore(wasm_module);
       (* Wasmgen.turn_missing_functions_to_imports (); *)

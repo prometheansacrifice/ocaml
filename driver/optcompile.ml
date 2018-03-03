@@ -68,7 +68,6 @@ let (++) x f = f x
 let (+++) (x, y) f = (x, f y)
 
 let implementation ~backend ppf sourcefile outputprefix =
-  print_endline "implementation...";
   Profile.record_call sourcefile (fun () ->
     Compmisc.init_path true;
     let modulename = module_of_filename ppf sourcefile outputprefix in
@@ -76,9 +75,7 @@ let implementation ~backend ppf sourcefile outputprefix =
     let env = Compmisc.initial_env() in
     Compilenv.reset ?packname:!Clflags.for_package modulename;
     let cmxfile = outputprefix ^ ".cmx" in
-    print_endline ("OH HELLO CMX FILE:" ^ cmxfile);
     let objfile = outputprefix ^ ext_obj in
-    print_endline ("OH HELLO OBJECT FILE:" ^ objfile);
     let comp ast =
       let (typedtree, coercion) =
         ast

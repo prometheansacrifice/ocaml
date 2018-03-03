@@ -183,11 +183,12 @@ let end_gen_implementation ?toplevel ppf
   if !wasm then (
     Wasmgen.reset ();
     Emit.begin_assembly ();
-    Wasmgen.setup_helper_functions ();
+    (* Wasmgen.setup_helper_functions (); *)
     clambda
     ++ Profile.record "cmm" Cmmgen.compunit
     ++ Profile.record "compile_phrases" (List.iter (Wasmgen.compile_wasm_phrase ppf));
     Wasmgen.turn_missing_functions_to_imports ();
+    Wasmgen.create_symbol_table ();
     let wasm_module = !Wasmgen.wasm_module in
     Print_wat.module_ stdout 80 wasm_module;
     let s = Encode.encode wasm_module in

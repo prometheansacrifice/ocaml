@@ -20,6 +20,11 @@ type stream =
   patches : (int * char) list ref
 }
 
+(* let table_relocs:func_reloc list = [] *)
+
+(* let func_relocs:func_reloc list = []
+let func_relocs:func_reloc list = [] *)
+
 let stream () = {buf = Buffer.create 8192; patches = ref []}
 let pos s = Buffer.length s.buf
 let put s b = Buffer.add_char s.buf b
@@ -34,8 +39,17 @@ let to_string s =
 
 (* Encoding *)
 
+type relocation =
+  | Func_reloc of int32 * Ast.var
+  | Memory_address_reloc of int32 * Ast.var
+  | Static_address_reloc of int32
+  | Type_reloc of int32 * Ast.var
+  | Global_reloc of int32 * Ast.var
+
 let encode m =
   let s = stream () in
+
+  let relocations:relocation list ref = ref [] in
 
   let module E = struct
     (* Generic values *)
@@ -139,8 +153,9 @@ let encode m =
     let memop {align; offset; _} = vu32 (Int32.of_int align); vu32 offset
 
     let var x = vu32 x
-
+    let temp = ref None
     let rec instr e =
+      temp := None;
       match e with
       | Unreachable -> op 0x00
       | Nop -> op 0x01
@@ -156,18 +171,39 @@ let encode m =
       | BrIf x -> op 0x0d; var x
       | BrTable (xs, x) -> op 0x0e; vec var xs; var x
       | Return -> op 0x0f
-      | Call x -> op 0x10; var x
-      | CallIndirect x -> op 0x11; var x; u8 0x00
+      | Call x ->
 
+          (* let position = pos s in *)
+          (* TODO create proper symbol in the symbol table that matches the index *)
+          (* func_relocs := func_relocs @ [{offset: Int32.of_int position, index: x}}; *)
+          (* print_endline ("dat position:" ^ string_of_int position); *)
+          let p = pos s in
+          relocations := !relocations @ [Func_reloc (Int32.of_int p, x)];
+          op 0x10;
+          var x
+      | CallIndirect x ->
+        op 0x11;
+        (match !temp with
+        | Some (offset, i) -> relocations := !relocations @ [Memory_address_reloc (Int32.of_int offset, i)]
+        | None -> ());
+        let p = pos s in
+        relocations := !relocations @ [Type_reloc (Int32.of_int p, x)];
+        var x;
+        u8 0x00
       | Drop -> op 0x1a
       | Select -> op 0x1b
 
       | GetLocal x -> op 0x20; var x
       | SetLocal x -> op 0x21; var x
       | TeeLocal x -> op 0x22; var x
-      | GetGlobal x -> op 0x23; var x
-      | SetGlobal x -> op 0x24; var x
-
+      | GetGlobal x ->
+        op 0x23;
+        let p = pos s in
+        relocations := !relocations @ [Global_reloc (Int32.of_int p, x)];
+        var x
+      | SetGlobal x ->
+        op 0x24;
+        var x
       | Load ({ty = I32Type; sz = None; _} as mo) -> op 0x28; memop mo
       | Load ({ty = I64Type; sz = None; _} as mo) -> op 0x29; memop mo
       | Load ({ty = F32Type; sz = None; _} as mo) -> op 0x2a; memop mo
@@ -196,7 +232,6 @@ let encode m =
         op 0x35; memop mo
       | Load {ty = F32Type | F64Type; sz = Some _; _} ->
         assert false
-
       | Store ({ty = I32Type; sz = None; _} as mo) -> op 0x36; memop mo
       | Store ({ty = I64Type; sz = None; _} as mo) -> op 0x37; memop mo
       | Store ({ty = F32Type; sz = None; _} as mo) -> op 0x38; memop mo
@@ -208,11 +243,13 @@ let encode m =
       | Store ({ty = I64Type; sz = Some Mem16; _} as mo) -> op 0x3d; memop mo
       | Store ({ty = I64Type; sz = Some Mem32; _} as mo) -> op 0x3e; memop mo
       | Store {ty = F32Type | F64Type; sz = Some _; _} -> assert false
-
       | CurrentMemory -> op 0x3f; u8 0x00
       | GrowMemory -> op 0x40; u8 0x00
-
-      | Const (I32 c) -> op 0x41; vs32 c
+      | Const (I32 c) ->
+        op 0x41;
+        let p = pos s in
+        temp := Some (p, c);
+        vs32 c
       | Const (I64 c) -> op 0x42; vs64 c
       | Const (F32 c) -> op 0x43; f32 c
       | Const (F64 c) -> op 0x44; f64 c
@@ -380,6 +417,16 @@ let encode m =
         patch_gap32 g (pos s - p)
       end
 
+    let custom_section id f x needed =
+      if needed then begin
+        u8 0;
+        let g = gap32 () in
+        let p = pos s in
+        string id;
+        f x;
+        patch_gap32 g (pos s - p)
+      end
+
     (* Type section *)
     let type_ t = func_type t
 
@@ -486,7 +533,7 @@ let encode m =
     (* let memory_segment seg =
       segment string seg *)
 
-    let data_part_list (data_part_list:data_part list) =
+    let data_part_list (data_part_list:data_part) =
       let data_length = List.fold_left (fun cur add ->
           cur + match add with
           | String s -> String.length s
@@ -495,7 +542,8 @@ let encode m =
           | Int32 _ -> 4
           | Int16 _ -> 2
           | Int8 _ -> 1
-      ) 0 data_part_list in
+      ) 0 data_part_list.detail in
+      print_endline ("data length:" ^ string_of_int data_length);
       len data_length;
       List.iter (fun f ->
         match f with
@@ -505,7 +553,7 @@ let encode m =
         | Nativeint ni -> u32 (Nativeint.to_int32 ni)
         | Int16 i -> u16 i
         | Int8 i -> u8 i
-      ) data_part_list
+      ) data_part_list.detail
 
     let data_segment seg = (* https://github.com/WebAssembly/design/blob/master/BinaryEncoding.md#data-section *)
       segment data_part_list seg
@@ -513,8 +561,127 @@ let encode m =
     let data_section data =
       section 11 (vec data_segment) data (data <> [])
 
-    (* Module *)
+    let reloc_code symbols data =
+      u8 10;
+      vu32 (Int32.of_int (List.length !relocations));
+      List.iter (fun r ->
+        match r with
+        | Func_reloc (offset, index_) ->
+          (let symbol_index = ref (-1) in
+          List.iteri (fun i s -> match s.details with
+            | Function {index = index_; _} -> symbol_index := i
+            | _ -> ()) symbols;
+          vu32 0l;
+          vu32 offset;
+          vu32 (Int32.of_int !symbol_index))
+        | Memory_address_reloc (offset, index) ->
+          vu32 1l;
+          vu32 offset;
+          vu32 index
+        | Type_reloc (offset, index) ->
+          vu32 6l;
+          vu32 offset;
+          print_endline ("reloc: " ^ Int32.to_string index);
+          vu32 index
+        | Global_reloc (offset, index) ->
+          vu32 7l;
+          vu32 offset;
+          vu32 index
+        | _ -> ()
+      ) !relocations
 
+    let relocate_code_section symbols data =
+      custom_section "reloc.CODE" (reloc_code symbols) data (data <> [])
+(*
+    let relocate_data_section data =
+      custom_section "reloc.DATA" (vec data_segment) data (data <> []) *)
+
+    let symbol sym =
+      (match sym.details with
+      | Import _
+      | Function _ -> u8 0
+      | Data _ ->  u8 1
+      | Global _ -> u8 2
+      );
+      vu32 sym.flags;
+      (match sym.details with
+      | Global f
+      | Function f ->
+        vu32 f.index;
+        string f.name;
+      | Import i ->
+        vu32 i;
+      | Data d ->
+        string d.name;
+        print_endline d.name;
+        print_endline "-------";
+        print_endline ("Index:" ^ Int32.to_string d.index);
+        print_endline ("Offset:" ^ Int32.to_string d.offset);
+        print_endline ("Size:" ^ Int32.to_string d.size);
+        vu32 d.index;
+        vu32 d.offset;
+        vu32 d.size
+      )
+
+
+    let symbol_table (data: Ast.sym_info list) =
+      (* let size = ref 0l in
+      List.iter (fun f ->
+        match f.details with
+        | Data d -> size := Int32.add d.offset d.size
+        | _ -> ()
+      ) data;
+      u8 2; (* WASM_DATA_SIZE *)
+      let g = gap32 () in
+      let p = pos s in
+      vu32 !size;
+      patch_gap32 g (pos s - p); *)
+      (* u8 3; (* WASM_DATA_ALIGNMENT *)
+      let g = gap32 () in
+      let p = pos s in
+      vu32 0l;
+      patch_gap32 g (pos s - p); *)
+      u8 8; (* WASM_SYMBOL_TABLE *)
+      let g = gap32 () in
+      let p = pos s in
+      print_endline "\nlet symbol_table\n========\n";
+      vec symbol data;
+      patch_gap32 g (pos s - p);
+
+      u8 5;
+      let g = gap32 () in
+      let p = pos s in
+      let no_of_data = List.length (List.filter (fun f -> match f.details with Data _ -> true | _ -> false) data) in
+      vu32 (Int32.of_int no_of_data);
+      List.iter (fun f ->
+        match f.details with
+        | Data d -> (
+          string d.name;
+          vu32 4l;
+          vu32 0l;
+          )
+        | _ -> ()
+      ) data;
+      patch_gap32 g (pos s - p);
+      List.iteri(fun i f ->
+        match f.details with
+        | Function {name = "_start"; _ } ->  (
+          u8 6; (* WASM_INIT_FUNCS *)
+          let g = gap32 () in
+          let p = pos s in
+          vu32 1l;
+          vu32 0l;
+          vu32 (Int32.of_int i);
+          patch_gap32 g (pos s - p)
+          )
+        | _ -> ()
+        ) data
+
+
+    let linking_section (data:Ast.sym_info list) =
+      custom_section "linking" symbol_table data (data <> [])
+
+      (* Module *)
     let module_ m =
       u32 0x6d736100l;
       u32 version;
@@ -528,6 +695,10 @@ let encode m =
       start_section m.start;
       elem_section m.elems;
       code_section m.funcs;
-      data_section m.data
+      (if List.length !relocations > 0 then
+        relocate_code_section m.symbols m.funcs);
+      data_section m.data;
+      (* TODO: relocate_data_section m.data; *)
+      linking_section m.symbols;
   end
   in E.module_ m; to_string s

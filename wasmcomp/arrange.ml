@@ -303,7 +303,7 @@ let segment head dat seg =
 let elems seg =
   segment "elem" (list (atom var)) seg
 
-let foo (f:data_part list) =
+let foo (f:data_part) =
   (* let r = List.fold_left (fun acc add -> acc ^ "hi" ) "" f in *)
   []
 

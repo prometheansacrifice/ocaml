@@ -15,6 +15,10 @@
  *
  * These conventions mostly follow standard practice in language semantics.
  *)
+
+(* TODO: introduce symbol variable and use it instead! *)
+
+
 module Types = Wasm_types
 
 open Types
@@ -109,6 +113,7 @@ type const = instr list
 
 type global =
 {
+  name : string;
   gtype : global_type;
   value : const;
 }
@@ -174,13 +179,41 @@ type import =
   idesc : import_desc;
 }
 
-type data_part =
+type data_part_detail =
 | String of string
 | Int32 of int32
 | Nativeint of nativeint
 | Int16 of int
 | Int8 of int
 | Float32 of F32.t
+
+type data_part = {
+  name: string;
+  detail: data_part_detail list
+}
+
+type sym_info_function = {
+  index: var;
+  name: string; (* to length and bytes *)
+}
+
+type sym_info_data = {
+  name: string; (* to length and bytes *)
+  index: var;
+  offset: var;
+  size: var;
+}
+
+type sym_info_details =
+  | Function of sym_info_function
+  | Import of var
+  | Global of sym_info_function
+  | Data of sym_info_data
+
+type sym_info = {
+  flags: var;
+  details: sym_info_details;
+}
 
 type module_ =
 {
@@ -191,9 +224,10 @@ type module_ =
   funcs : func list;
   start : var option;
   elems : var list segment list;
-  data : data_part list segment list;
+  data : data_part segment list;
   imports : import list;
   exports : export list;
+  symbols : sym_info list;
 }
 
 
@@ -211,6 +245,7 @@ let empty_module =
   data = [];
   imports = [];
   exports = [];
+  symbols = [];
 }
 
 let func_type_for (m : module_) (x : var) : func_type =

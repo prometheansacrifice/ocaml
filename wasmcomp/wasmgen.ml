@@ -38,6 +38,26 @@ type local_space = {mutable l_map : (int32 * value_type) VarMap.t; mutable l_cou
 
 type block_stack = string Stack.t
 
+(* the resulting wasm module *)
+let wasm_module = ref {
+  types = [];
+  globals = [];
+  tables = Types.[{
+    ttype = TableType ({min = 0l; max = Some 0l}, AnyFuncType)
+  }];
+  memories = Types.[{
+    (* TODO: this needs to be improved when doing GC *)
+    mtype = MemoryType {min = 100l; max = Some 100l}
+  }];
+  funcs = [];
+  start = None;
+  elems = [];
+  data = [];
+  imports = [];
+  exports = [];
+  symbols = [];
+}
+
 let empty () = {map = VarMap.empty; count = 0l}
 
 type types = {space : space; mutable list : type_ list}
@@ -106,6 +126,45 @@ let bind_type (c : context) x ty =
 let bind_func (c : context) x = (
   bind "function" c.funcs x
 )
+let wasm_sym_binding_weak = 1l
+let data_symbols = ref []
+let create_symbol_table () = (
+  let w = !wasm_module in
+  let func_symbols =
+    (List.mapi (fun i import ->
+      let flags = if true (* (Ast.string_of_name import.module_name) = "linking" *)  then (
+        Int32.add 16l wasm_sym_binding_weak
+      ) else (
+        16l
+      )
+      in
+      {
+        flags = flags;
+        details = Import (Int32.of_int i)
+      }) w.imports)
+    @
+    (List.mapi (fun i (f:Ast.func) -> {
+      flags = 0l;
+      details = Function ({
+        index = Int32.of_int (List.length w.imports + i);
+        name = f.name
+      })
+    }) w.funcs)
+  in
+  let global_symbols = (List.mapi (fun i (g:Ast.global) -> {
+    flags = 0l;
+    details = Global ({
+      index = Int32.of_int i;
+      name = g.name
+    })
+  }) w.globals)
+  in
+  wasm_module := {w with
+    symbols =
+      global_symbols @ func_symbols @ !data_symbols
+  }
+)
+
 let bind_local (c : context) name value_type = bind_local "local" c.locals name value_type
 let bind_data (c : context) x i = (
   let space = c.data in
@@ -141,27 +200,7 @@ let enter_func (c : context) = (
 (* custom implementation *)
 
 let unique_name_counter = ref 0
-
-let global_id = bind_global !context "global_offset"
-
-(* the resulting wasm module *)
-let wasm_module = ref {
-  types = [];
-  globals = [];
-  tables = Types.[{
-    ttype = TableType ({min = 0l; max = Some 0l}, AnyFuncType)
-  }];
-  memories = Types.[{
-    (* TODO: this needs to be improved when doing GC *)
-    mtype = MemoryType {min = 100l; max = Some 100l}
-  }];
-  funcs = [];
-  start = None;
-  elems = [];
-  data = [];
-  imports = [];
-  exports = [];
-}
+let data_index = ref 0
 
 let reset () = (
   wasm_module := {
@@ -180,9 +219,12 @@ let reset () = (
     data = [];
     imports = [];
     exports = [];
+    symbols = [];
   };
   context := empty_context ();
   current_return_type := [];
+  data_index := 0;
+  data_symbols := [];
 )
 
 let name s =
@@ -863,29 +905,59 @@ let global_offset = ref 0
 let setup_helper_functions () = (
   let context = !context in
   let globals = [{
+    name = "global_offset";
+    gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
+    value = [Const (I32 (I32.of_int_s !global_offset))]
+  };
+  {
+    name = "global_memory_offset";
     gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
     value = [Const (I32 (I32.of_int_s 0))]
   }
   ]
   in
+  ignore(bind_global context "global_offset");
   ignore(bind_global context "global_memory_offset");
 
   let data = [{
     index =  0l;
     offset = [Const (I32 0l)];
-    init = [Int8 0]
+    init = {
+      name = "caml_globals_inited";
+      detail = [Int8 0]
+    };
   }; {
     index =  0l;
     offset = [Const (I32 1l)];
-    init = [Int32 0l]
-  }
+    init = {
+      name = "caml_backtrace_pos";
+      detail = [Int32 0l]
+    };
+  };
   ]
   in
   ignore(bind_data context "caml_globals_inited" 0l);
   ignore(bind_data context "caml_backtrace_pos" 1l);
-  ignore(bind_data context "the_void" 0l);
-
-  (* pointers to data must be ((pointer land 1) = 0) *)
+  data_index := 2;
+  data_symbols := !data_symbols @ [{
+    flags = 0l;
+    details = Data ({
+      name = "caml_global_init";
+      index = 0l;
+      offset = 0l;
+      size =  1l;
+    })
+  };
+  {
+    flags = 0l;
+    details = Data ({
+      name = "caml_backtrace_pos";
+      index = 1l;
+      offset = 0l;
+      size =  4l;
+    })
+  };
+  ];
 
   global_offset := !global_offset + 6;
 
@@ -912,7 +984,7 @@ let setup_helper_functions () = (
     };
     {
       module_name = name "js";
-      item_name = name "raise";
+      item_name = name "raise2";
       idesc = FuncImport raise_i32_ftype
     };
     {
@@ -1046,14 +1118,14 @@ let setup_helper_functions () = (
   in
   let w = !wasm_module in
   wasm_module := Ast.{w with
-              globals = globals;
-              types = types;
-              data = data;
-              imports = imports;
-              exports = exports;
-              tables = tables;
-              elems = elems
-            };
+    globals = globals;
+    types = types;
+    data = data;
+    imports = imports;
+    exports = exports;
+    tables = tables;
+    elems = elems
+  };
 )
 
 let rec add_exception_functions ppf = (
@@ -1079,6 +1151,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
   let context = !context in
   match p with
   | Cfunction ({fun_name; fun_args; fun_body; fun_fast; fun_dbg}) -> (
+    let fun_name = if fun_name = "caml_program" then "_start" else fun_name in
     let context = enter_func context in
     let args = ref [] in
     (* print_string ("\n\n." ^ fun_name ^ "("); *)
@@ -1260,6 +1333,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
       | Cint i when (((Nativeint.to_int i) land 255) == 247) -> true
       | _ -> false)
     in
+    let symbol_name = ref "" in
     List.iter (function
       | Cglobal_symbol s -> ()
       | Csymbol_address symbol -> (
@@ -1282,6 +1356,7 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
         )
       | Cdefine_symbol symbol -> (
           try (
+            symbol_name := symbol;
             ignore(bind_data context symbol (I32.of_int_u (start_offset + !offset)));
             let w = !wasm_module in
             let newFuncs = List.map (fun (func:Ast.func) -> (
@@ -1343,6 +1418,20 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
           ()
       | Calign i -> () (* seems not to be produced anyway in the OCaml codebase *)
     ) dl;
+
+    print_endline (!symbol_name ^ " = " ^ string_of_int !offset);
+
+    data_symbols := !data_symbols @ [{
+      flags = 0l;
+      details = Data ({
+        name = !symbol_name;
+        index = Int32.of_int !data_index;
+        offset = 0l;
+        size =  Int32.of_int !offset
+      })
+    }];
+    data_index := !data_index + 1;
+
     let w = !wasm_module in
 
     global_offset := !global_offset + !offset;
@@ -1352,11 +1441,10 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     wasm_module := Ast.{w with data = w.data @ [{
       index =  0l;
       offset = [Const (I32 (I32.of_int_s start_offset))];
-      init = !init
+      init = {
+        name = !symbol_name;
+        detail = !init
+      }
     }];
-    globals = [{
-      gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
-      value = [Const (I32 (I32.of_int_s !global_offset))]
-    }]
   };
 )
