@@ -506,16 +506,20 @@ let encode m =
 
     let local (t, n) = len n; value_type t
 
+    let code_pos = ref (-1l)
+
     let code f =
       let {locals; body; _} = f in
       let g = gap32 () in
       let p = pos s in
+
       vec local (compress locals);
       list instr body;
       end_ ();
       patch_gap32 g (pos s - p)
 
     let code_section fs =
+      code_pos := Int32.of_int (pos s);
       section 10 (vec code) fs (fs <> [])
 
     (* Element section *)
@@ -569,10 +573,11 @@ let encode m =
         | Func_reloc (offset, index_) ->
           (let symbol_index = ref (-1) in
           List.iteri (fun i s -> match s.details with
-            | Function {index = index_; _} -> symbol_index := i
+            | Import index when index = index_ -> symbol_index := i
+            | Function {index; _} when index = index_ -> symbol_index := i
             | _ -> ()) symbols;
           vu32 0l;
-          vu32 offset;
+          vu32 (Int32.sub offset !code_pos);
           vu32 (Int32.of_int !symbol_index))
         | Memory_address_reloc (offset, index) ->
           vu32 1l;
@@ -580,8 +585,7 @@ let encode m =
           vu32 index
         | Type_reloc (offset, index) ->
           vu32 6l;
-          vu32 offset;
-          print_endline ("reloc: " ^ Int32.to_string index);
+          vu32 (Int32.sub offset !code_pos);
           vu32 index
         | Global_reloc (offset, index) ->
           vu32 7l;
@@ -613,7 +617,7 @@ let encode m =
         vu32 i;
       | Data d ->
         string d.name;
-        print_endline d.name;
+        print_endline ("Data: " ^ d.name);
         print_endline "-------";
         print_endline ("Index:" ^ Int32.to_string d.index);
         print_endline ("Offset:" ^ Int32.to_string d.offset);

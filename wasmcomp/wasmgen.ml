@@ -124,7 +124,9 @@ let bind_type (c : context) x ty =
   bind "type" c.types.space x
 
 let bind_func (c : context) x = (
-  bind "function" c.funcs x
+  let i = bind "function" c.funcs x in
+  print_endline ("BIND FUNCTION:" ^ x ^ " = " ^ Int32.to_string i);
+  i
 )
 let wasm_sym_binding_weak = 1l
 let data_symbols = ref []
@@ -186,7 +188,9 @@ let bind_label (c : context) x =
   {c with labels = VarMap.add x 0l (VarMap.map (Int32.add 1l) c.labels)}
 let func (c : context) x =
   try
-    lookup "function" c.funcs x
+    let result = lookup "function" c.funcs x in
+    print_endline ("Func lookup:" ^ x ^ " = " ^ Int32.to_string result);
+    result
   with
     | Not_found -> failwith ("Not found function:" ^ x)
 
@@ -245,10 +249,13 @@ let turn_missing_functions_to_imports () = (
 
   let imports = ref [] in
   let highest_value = ref 0l in
+  let type_ = ref (-1l) in
   VarMap.iter (fun key value ->
     (* create a temp empty type... *)
+    (* TODO: refactor... *)
     let empty_type = Types.FuncType ([], []) in
     let empty_ftype = bind_type context ("empty_type_" ^ key) empty_type in
+    type_ := empty_ftype;
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [empty_type]};
     imports := !imports @ [{
@@ -262,10 +269,14 @@ let turn_missing_functions_to_imports () = (
   let nr_of_added_imports  = List.length !imports in
   let w = !wasm_module in
   wasm_module := Ast.{w with imports = w.imports @ !imports};
-  let handle_instructions instr =
-    match instr with
-    | Call i when (Int32.to_int i) < (Int32.to_int !highest_value) -> Call (Int32.of_int (Int32.to_int i + nr_of_added_imports))
-    | _ -> instr
+  let rec handle_instructions result = function
+    | Call i :: rest when (Int32.to_int i) < (Int32.to_int !highest_value) ->
+        handle_instructions (result @ [Const (I32 i); CallIndirect !type_]) rest
+    | Block (rt, el) :: rest -> handle_instructions (result @ [Block (rt, handle_instructions [] el)]) rest
+    | If (crt, t, e) :: rest -> handle_instructions (result @ [If (crt, handle_instructions [] t, handle_instructions [] e)]) rest
+    | Loop (s, i) :: rest  ->  handle_instructions (result @ [Loop (s, handle_instructions [] i)]) rest
+    | instr :: rest -> handle_instructions (result @ [instr]) rest
+    | [] -> result
   in
   let handle_export export =
     match export.edesc with
@@ -276,7 +287,7 @@ let turn_missing_functions_to_imports () = (
   let w = !wasm_module in
   wasm_module := Ast.{w with funcs = List.mapi (fun index func ->
       {func with
-        body = List.map handle_instructions func.body
+        body = handle_instructions [] func.body
       }
     ) w.funcs;
     exports = List.map handle_export w.exports
@@ -1014,44 +1025,7 @@ let setup_helper_functions () = (
     };
   ]
   in
-  (* let funcs = [
-    {
-      name = "allocate_memory";
-      ftype = type__ftype;
-      locals = [Types.I32Type];
-      body = [
-        GetGlobal 0l;
-        TeeLocal 1l;
-        GetLocal 0l;
-        Binary (I32 I32Op.Add);
-        SetGlobal 0l;
-        GetLocal 1l;
-      ]
-    };
-    (* for now we use stubs for camlCamlinternalFormatBasics__entry,
-       camlPervasives__entry, and camlStd_exit__entry as linking still needs
-       to be implemented
-    *)
-    {
-      name = "camlCamlinternalFormatBasics__entry";
-      ftype = empty_ftype;
-      locals = [];
-      body = []
-    };
-    {
-      name = "camlPervasives__entry";
-      ftype = empty_ftype;
-      locals = [];
-      body = []
-    };
-    {
-      name = "camlStd_exit__entry";
-      ftype = empty_ftype;
-      locals = [];
-      body = []
-    }
-  ]
-  in *)
+
   ignore(bind_func context "jsTryWith");
   ignore(bind_func context "jsRaise_i32_i32");
   ignore(bind_func context "jsRaise_i32_unit");
@@ -1071,7 +1045,7 @@ let setup_helper_functions () = (
   }
   ]
   in
-  let tables = [{ttype = TableType ({min = 5l; max = Some 5l}, AnyFuncType)}]
+  let tables = [{ttype = TableType ({min = 8l; max = Some 8l}, AnyFuncType)}]
   in
   let elems = [
     {
@@ -1099,21 +1073,24 @@ let setup_helper_functions () = (
       offset=[Const (I32 (I32.of_int_s 4))];
       init=[4l]
     };
-    (* {
+
+    {
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 5))];
       init=[5l]
     };
+
     {
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 6))];
       init=[6l]
     };
+
     {
       index = 0l;
       offset=[Const (I32 (I32.of_int_s 7))];
       init=[7l]
-    } *)
+    };
   ]
   in
   let w = !wasm_module in
@@ -1284,7 +1261,6 @@ and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
     let funcs_ = ref [] in
     let inserted = ref false in
     List.iteri (fun i f -> (
-      (* TODO: add a check for the 2 - which should match the imports *)
       if (i + (List.length w.imports) == Int32.to_int func_id) then (
         funcs_ := !funcs_ @ [result; f];
         inserted := true;
