@@ -74,6 +74,11 @@ type var = int32
 type literal = Values.value
 type name = int list
 
+type call = {
+  index: var;
+  name: string;
+}
+
 type instr =
   | Unreachable                       (* trap unconditionally *)
   | Nop                               (* do nothing *)
@@ -84,7 +89,7 @@ type instr =
   | BrIf of var                       (* conditional break *)
   | BrTable of var list * var         (* indexed break *)
   | Return                            (* break from function body *)
-  | Call of var                       (* call function *)
+  | Call of call                      (* call function *)
   | Link of string                    (* used to link later on *)
   | CallIndirect of var               (* call function through table *)
   | Drop                              (* forget a value *)

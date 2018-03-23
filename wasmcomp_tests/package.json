@@ -16,6 +16,6 @@
     "mocha": "^4.0.1"
   },
   "scripts": {
-    "test": "karma start --single-run --browsers ChromeHeadless karma.conf.js"
+    "test": "karma start --browsers Chrome karma.conf.js"
   }
 }

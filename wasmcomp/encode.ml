@@ -75,6 +75,17 @@ let encode m =
 
     let vu1 i = vu64 Int64.(logand (of_int i) 1L)
     let vu32 i = vu64 Int64.(logand (of_int32 i) 0xffffffffL)
+    let vu32p i p =
+      let start = pos s in
+      vu32 i;
+      let end_ = pos s in
+      let padding = p - (end_ - start) - 1 in
+      for i = 0 to padding do
+        ignore(i);
+        put s (Char.chr 0x80)
+      done;
+      put s (Char.chr 0x00)
+
     let vs7 i = vs64 (Int64.of_int i)
     let vs32 i = vs64 (Int64.of_int32 i)
     let f32 x = u32 (F32.to_bits x)
@@ -154,8 +165,12 @@ let encode m =
 
     let var x = vu32 x
     let temp = ref None
+    let code_pos = ref (-1l)
     let rec instr e =
-      temp := None;
+      (match e with
+      | CallIndirect _ -> ()
+      | _ -> temp := None);
+
       match e with
       | Unreachable -> op 0x00
       | Nop -> op 0x01
@@ -172,22 +187,19 @@ let encode m =
       | BrTable (xs, x) -> op 0x0e; vec var xs; var x
       | Return -> op 0x0f
       | Call x ->
-
-          (* let position = pos s in *)
-          (* TODO create proper symbol in the symbol table that matches the index *)
-          (* func_relocs := func_relocs @ [{offset: Int32.of_int position, index: x}}; *)
-          (* print_endline ("dat position:" ^ string_of_int position); *)
-          let p = pos s in
-          relocations := !relocations @ [Func_reloc (Int32.of_int p, x)];
           op 0x10;
-          var x
+          let p = pos s in
+          relocations := !relocations @ [Func_reloc (Int32.of_int p, x.index)];
+          var x.index
       | CallIndirect x ->
         op 0x11;
-        (match !temp with
+        (* (match !temp with
         | Some (offset, i) -> relocations := !relocations @ [Memory_address_reloc (Int32.of_int offset, i)]
         | None -> ());
-        let p = pos s in
-        relocations := !relocations @ [Type_reloc (Int32.of_int p, x)];
+        temp := None; *)
+        let p2 = pos s in
+        print_endline("CallIndirect: " ^ string_of_int (p2 - Int32.to_int (!code_pos)));
+        relocations := !relocations @ [Type_reloc (Int32.of_int p2, x)];
         var x;
         u8 0x00
       | Drop -> op 0x1a
@@ -506,20 +518,19 @@ let encode m =
 
     let local (t, n) = len n; value_type t
 
-    let code_pos = ref (-1l)
-
     let code f =
       let {locals; body; _} = f in
+      print_endline ("Code pos:" ^ string_of_int (pos s - (Int32.to_int !code_pos)));
       let g = gap32 () in
       let p = pos s in
-
       vec local (compress locals);
       list instr body;
       end_ ();
+      print_endline ("EndPos:" ^ string_of_int (pos s - (Int32.to_int !code_pos)));
       patch_gap32 g (pos s - p)
 
     let code_section fs =
-      code_pos := Int32.of_int (pos s);
+      code_pos := Int32.of_int (pos s + 6);
       section 10 (vec code) fs (fs <> [])
 
     (* Element section *)
@@ -547,7 +558,6 @@ let encode m =
           | Int16 _ -> 2
           | Int8 _ -> 1
       ) 0 data_part_list.detail in
-      print_endline ("data length:" ^ string_of_int data_length);
       len data_length;
       List.iter (fun f ->
         match f with
@@ -570,28 +580,37 @@ let encode m =
       vu32 (Int32.of_int (List.length !relocations));
       List.iter (fun r ->
         match r with
+        | Type_reloc (offset, index) ->
+          u8 6;
+          vu32p (Int32.sub offset !code_pos) 5;
+          vu32 index
+
         | Func_reloc (offset, index_) ->
           (let symbol_index = ref (-1) in
           List.iteri (fun i s -> match s.details with
             | Import index when index = index_ -> symbol_index := i
             | Function {index; _} when index = index_ -> symbol_index := i
             | _ -> ()) symbols;
-          vu32 0l;
+          u8 0;
           vu32 (Int32.sub offset !code_pos);
           vu32 (Int32.of_int !symbol_index))
         | Memory_address_reloc (offset, index) ->
-          vu32 1l;
-          vu32 offset;
-          vu32 index
-        | Type_reloc (offset, index) ->
-          vu32 6l;
+          (* print_endline "MEMORY ADDR RELOC!"; *)
+          u8 1;
           vu32 (Int32.sub offset !code_pos);
           vu32 index
+          (*
+            2 and 5 are data related
+          *)
+          (*
+            3 and 4 are code related
+          *)
+
         | Global_reloc (offset, index) ->
-          vu32 7l;
-          vu32 offset;
+          u8 7;
+          vu32 (Int32.sub offset !code_pos);
           vu32 index
-        | _ -> ()
+        | _ -> assert false
       ) !relocations
 
     let relocate_code_section symbols data =
@@ -645,12 +664,6 @@ let encode m =
       let p = pos s in
       vu32 0l;
       patch_gap32 g (pos s - p); *)
-      u8 8; (* WASM_SYMBOL_TABLE *)
-      let g = gap32 () in
-      let p = pos s in
-      print_endline "\nlet symbol_table\n========\n";
-      vec symbol data;
-      patch_gap32 g (pos s - p);
 
       u8 5;
       let g = gap32 () in
@@ -660,6 +673,7 @@ let encode m =
       List.iter (fun f ->
         match f.details with
         | Data d -> (
+          print_endline ("A SEGMENT HERE:" ^ d.name);
           string d.name;
           vu32 4l;
           vu32 0l;
@@ -667,6 +681,15 @@ let encode m =
         | _ -> ()
       ) data;
       patch_gap32 g (pos s - p);
+      print_endline "\nlet symbol_table\n========\n";
+      u8 8; (* WASM_SYMBOL_TABLE *)
+      let g = gap32 () in
+      let p = pos s in
+
+      vec symbol data;
+      patch_gap32 g (pos s - p);
+
+
       List.iteri(fun i f ->
         match f.details with
         | Function {name = "_start"; _ } ->  (
@@ -699,10 +722,12 @@ let encode m =
       start_section m.start;
       elem_section m.elems;
       code_section m.funcs;
-      (if List.length !relocations > 0 then
-        relocate_code_section m.symbols m.funcs);
       data_section m.data;
-      (* TODO: relocate_data_section m.data; *)
       linking_section m.symbols;
+      if List.length !relocations > 0 then
+        relocate_code_section m.symbols m.funcs
+
+      (* TODO: relocate_data_section m.data; *)
+
   end
   in E.module_ m; to_string s

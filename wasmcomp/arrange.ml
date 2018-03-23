@@ -235,7 +235,7 @@ let rec instr e =
     | BrTable (xs, x) ->
       "br_table " ^ String.concat " " (list var (xs @ [x])), []
     | Return -> "return", []
-    | Call x -> "call " ^ var x, []
+    | Call x -> "call " ^ var x.index, []
     | CallIndirect x -> "call_indirect " ^ var x, []
     | Drop -> "drop", []
     | Select -> "select", []

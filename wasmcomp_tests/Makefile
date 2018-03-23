@@ -11,6 +11,7 @@ build:
 	# ../ocamlopt test/curried_function.ml -o test/curried_function.cmf
 	../ocamlopt -dcmm test/curried_function.ml
 	../ocamlopt -wasm test/curried_function.ml -o test/curried_function.wasm
+	../../wabt/bin/wasm2wat --no-check test/curried_function.wasm
 	# ../ocamlopt -wasm test/noncurried_function.ml -o test/noncurried_function.wasm
 	# ../ocamlopt -wasm test/exception_handling.ml -o test/exception_handling.wasm
 	# ../ocamlopt -wasm test/array2.ml -o test/array.wasm

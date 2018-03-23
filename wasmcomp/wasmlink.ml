@@ -397,14 +397,14 @@ let wasm_lld_linker mode output_name files extra = (
         | _ -> "-L"
       in
       Printf.printf "%s%s %s %s %s"
-        "lld -flavor wasm "
+        "../../llvmwasm/llvm-build/bin/lld -flavor wasm --allow-undefined  -verbose -o "
         (Filename.quote output_name)
         (quote_prefixed l_prefix !Config.load_path)
         (quote_files (remove_Wl files))
         extra;
 
       Printf.sprintf "%s%s %s %s %s"
-        "lld -flavor wasm "
+        "../../llvmwasm/llvm-build/bin/lld -flavor wasm --allow-undefined  --verbose -o "
         (Filename.quote output_name)
         (quote_prefixed l_prefix !Config.load_path)
         (quote_files (remove_Wl files))
