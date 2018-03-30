@@ -24,7 +24,11 @@ endef
 $(foreach i,BINDIR LIBDIR STUBLIBDIR MANDIR,$(eval $(shellquote)))
 endif
 
-CAMLRUN ?= ../boot/ocamlrun
+ifeq "$(HOST)" "EMSCRIPTEN"
+	CAMLRUN ?= cp ../boot/ocamlrun.wasm . && node ../boot/ocamlrun.js
+else
+	CAMLRUN ?= ../boot/ocamlrun
+endif
 CAMLYACC ?= ../boot/ocamlyacc
 DESTDIR ?=
 # Setup GNU make variables storing per-target source and target,

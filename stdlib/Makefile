@@ -16,11 +16,15 @@
 include ../config/Makefile
 include ../Makefile.common
 
-CAMLRUN ?= ../boot/ocamlrun
+ifeq "$(HOST)" "EMSCRIPTEN"
+	CAMLRUN ?= cp ../boot/ocamlrun.wasm . && node ../boot/ocamlrun.js
+else
+	CAMLRUN ?= ../boot/ocamlrun
+endif
 CAMLYACC ?= ../boot/ocamlyacc
 TARGET_BINDIR ?= $(BINDIR)
 
-COMPILER=../ocamlc
+COMPILER="../boot/ocamlc -verbose"
 CAMLC=$(CAMLRUN) $(COMPILER)
 COMPFLAGS=-strict-sequence -absname -w +a-4-9-41-42-44-45-48 \
           -g -warn-error A -bin-annot -nostdlib \
@@ -285,8 +289,10 @@ SPACE := $(EMPTY) $(EMPTY)
 depend:
 	$(CAMLDEP) -slash $(filter-out stdlib.%,$(wildcard *.mli *.ml)) \
 	  > .depend.tmp
+	echo "BURN BABY BURN a"
 	$(CAMLDEP) -slash -pp "$(AWK) -f remove_module_aliases.awk" \
 	  stdlib.ml stdlib.mli >> .depend.tmp
+	echo "BURN BABY BURN b"
 	$(CAMLDEP) -slash $(filter-out stdlib.%,$(wildcard *.ml)) \
 	  | sed -e 's/\.cmx : /.p.cmx : /g' >>.depend.tmp
 	$(CAMLDEP) -slash -pp "$(AWK) -f remove_module_aliases.awk" stdlib.ml \

@@ -60,6 +60,10 @@
 #include "caml/callback.h"
 #include "caml/startup_aux.h"
 
+#ifdef __EMSCRIPTEN__
+  #include <emscripten.h>
+#endif
+
 static char * error_message(void)
 {
   return strerror(errno);
@@ -417,13 +421,25 @@ void caml_sys_init(char_os * exe_name, char_os **argv)
 CAMLprim value caml_sys_system_command(value command)
 {
   CAMLparam1 (command);
-  int status, retcode;
-  char_os *buf;
+  
+  int retcode;
 
   if (! caml_string_is_c_safe (command)) {
     errno = EINVAL;
     caml_sys_error(command);
   }
+  
+#ifdef __EMSCRIPTEN__
+  caml_enter_blocking_section ();
+  retcode = EM_ASM_INT({
+    var process = require('child_process');    
+    var result = process.spawnSync(Pointer_stringify($0), {shell: true});
+    return result.status;
+  }, String_val(command));  
+  caml_leave_blocking_section ();
+#else  
+  int status;
+  char_os *buf;
   buf = caml_stat_strdup_to_os(String_val(command));
   caml_enter_blocking_section ();
   status = CAML_SYS_SYSTEM(buf);
@@ -434,7 +450,9 @@ CAMLprim value caml_sys_system_command(value command)
     retcode = WEXITSTATUS(status);
   else
     retcode = 255;
-  CAMLreturn (Val_int(retcode));
+#endif  
+  
+  CAMLreturn (Val_int(retcode));  
 }
 
 double caml_sys_time_include_children_unboxed(value include_children)

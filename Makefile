@@ -54,13 +54,19 @@ else
 LN = ln -sf
 endif
 
+
+ifeq "$(HOST)" "EMSCRIPTEN"
+CAMLRUN ?= cp boot/ocamlrun.wasm . && node boot/ocamlrun.js
+else
 CAMLRUN ?= boot/ocamlrun
+endif
+
 CAMLYACC ?= boot/ocamlyacc
 include stdlib/StdlibModules
 
 CAMLC=$(CAMLRUN) boot/ocamlc -g -nostdlib -I boot -use-prims byterun/primitives
 CAMLOPT=$(CAMLRUN) ./ocamlopt -g -nostdlib -I stdlib -I otherlibs/dynlink
-ARCHES=amd64 i386 arm arm64 power s390x
+ARCHES=amd64 i386 arm arm64 power s390x wasm32
 INCLUDES=-I utils -I parsing -I typing -I bytecomp -I middle_end \
         -I middle_end/base_types -I asmcomp -I asmcomp/debug \
         -I driver -I toplevel
@@ -155,6 +161,30 @@ ifeq ($(ARCH),amd64)
 ARCH_SPECIFIC_ASMCOMP=$(INTEL_ASM)
 endif
 
+ifeq "$(HOST)" "EMSCRIPTEN"
+ASMCOMP=\
+  $(ARCH_SPECIFIC_ASMCOMP) \
+  asmcomp/arch.cmo \
+  asmcomp/cmm.cmo asmcomp/printcmm.cmo \
+  asmcomp/reg.cmo asmcomp/debug/reg_with_debug_info.cmo \
+  asmcomp/debug/reg_availability_set.cmo \
+  asmcomp/proc.cmo \
+  asmcomp/clambda.cmo asmcomp/printclambda.cmo \
+  asmcomp/export_info.cmo \
+  asmcomp/export_info_for_pack.cmo \
+  asmcomp/compilenv.cmo \
+  asmcomp/closure.cmo \
+  asmcomp/build_export_info.cmo \
+  asmcomp/closure_offsets.cmo \
+  asmcomp/flambda_to_clambda.cmo \
+  asmcomp/import_approx.cmo \
+  asmcomp/un_anf.cmo \
+  asmcomp/afl_instrument.cmo \
+  asmcomp/strmatch.cmo asmcomp/cmmgen.cmo \
+  asmcomp/emit.cmo asmcomp/asmgen.cmo \
+  asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
+  driver/opterrors.cmo driver/optcompile.cmo
+else 
 ASMCOMP=\
   $(ARCH_SPECIFIC_ASMCOMP) \
   asmcomp/arch.cmo \
@@ -193,6 +223,9 @@ ASMCOMP=\
   asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
+endif
+
+
 
 MIDDLE_END=\
   middle_end/debuginfo.cmo \
@@ -384,6 +417,9 @@ beforedepend:: utils/config.ml
 coldstart:
 	$(MAKE) -C byterun $(BOOT_FLEXLINK_CMD) all
 	cp byterun/ocamlrun$(EXE) boot/ocamlrun$(EXE)
+ifeq "$(HOST)" "EMSCRIPTEN"
+	cp byterun/ocamlrun.wasm boot/ocamlrun.wasm 
+endif
 	$(MAKE) -C yacc $(BOOT_FLEXLINK_CMD) all
 	cp yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
 	$(MAKE) -C stdlib $(BOOT_FLEXLINK_CMD) \
@@ -1113,9 +1149,12 @@ partialclean::
 .PHONY: checkstack
 checkstack:
 ifeq "$(UNIX_OR_WIN32)" "unix"
-	if $(MKEXE) $(OUTPUTEXE)tools/checkstack$(EXE) tools/checkstack.c; \
-	  then tools/checkstack$(EXE); \
-	fi
+	$(MKEXE) $(OUTPUTEXE)tools/checkstack$(EXE) tools/checkstack.c	
+ifeq "$(HOST)" "EMSCRIPTEN"
+	cd tools && node checkstack$(EXE)
+else 
+	checkstack$(EXE)
+endif	
 	rm -f tools/checkstack$(EXE)
 else
 	@
@@ -1312,5 +1351,10 @@ distclean: clean
 	rm -f tools/*.bak
 	rm -f ocaml ocamlc
 	rm -f testsuite/_log*
+
+wasm:
+	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+	ar='llvm-ar' EMCC_EXPERIMENTAL_USE_LLD=1 emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+	make ocamlopt.opt
 
 include .depend

@@ -31,6 +31,9 @@
 #endif
 #endif
 
+#define Saved_return_address(sp) *((intnat *)((sp) - 4))
+#define Callback_link(sp) ((struct caml_context *)((sp) + 4))
+
 #ifdef TARGET_power
 #if defined(MODEL_ppc)
 #define Saved_return_address(sp) *((intnat *)((sp) - 4))
