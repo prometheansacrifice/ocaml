@@ -57,11 +57,13 @@ endif
 
 ifeq "$(HOST)" "EMSCRIPTEN"
 CAMLRUN ?= cp boot/ocamlrun.wasm . && node boot/ocamlrun.js
+CAMLYACC ?= cp boot/ocamlyacc.wasm . && node boot/ocamlyacc.js
 else
 CAMLRUN ?= boot/ocamlrun
+CAMLYACC ?= boot/ocamlyacc
 endif
 
-CAMLYACC ?= boot/ocamlyacc
+
 include stdlib/StdlibModules
 
 CAMLC=$(CAMLRUN) boot/ocamlc -g -nostdlib -I boot -use-prims byterun/primitives
@@ -161,14 +163,11 @@ ifeq ($(ARCH),amd64)
 ARCH_SPECIFIC_ASMCOMP=$(INTEL_ASM)
 endif
 
-ifeq "$(HOST)" "EMSCRIPTEN"
-ASMCOMP=\
-  $(ARCH_SPECIFIC_ASMCOMP) \
+WASMCOMP=\
   asmcomp/arch.cmo \
   asmcomp/cmm.cmo asmcomp/printcmm.cmo \
   asmcomp/reg.cmo asmcomp/debug/reg_with_debug_info.cmo \
   asmcomp/debug/reg_availability_set.cmo \
-  asmcomp/proc.cmo \
   asmcomp/clambda.cmo asmcomp/printclambda.cmo \
   asmcomp/export_info.cmo \
   asmcomp/export_info_for_pack.cmo \
@@ -181,10 +180,10 @@ ASMCOMP=\
   asmcomp/un_anf.cmo \
   asmcomp/afl_instrument.cmo \
   asmcomp/strmatch.cmo asmcomp/cmmgen.cmo \
-  asmcomp/emit.cmo asmcomp/asmgen.cmo \
+  asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
-else 
+ 
 ASMCOMP=\
   $(ARCH_SPECIFIC_ASMCOMP) \
   asmcomp/arch.cmo \
@@ -223,9 +222,6 @@ ASMCOMP=\
   asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
-endif
-
-
 
 MIDDLE_END=\
   middle_end/debuginfo.cmo \
@@ -295,6 +291,8 @@ OPTTOPLEVEL=toplevel/genprintval.cmo toplevel/opttoploop.cmo \
 BYTESTART=driver/main.cmo
 
 OPTSTART=driver/optmain.cmo
+
+WASMSTART=driver/wasmmain.cmo
 
 TOPLEVELSTART=toplevel/topstart.cmo
 
@@ -422,6 +420,9 @@ ifeq "$(HOST)" "EMSCRIPTEN"
 endif
 	$(MAKE) -C yacc $(BOOT_FLEXLINK_CMD) all
 	cp yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
+ifeq "$(HOST)" "EMSCRIPTEN"
+	cp yacc/ocamlyacc.wasm boot/ocamlyacc.wasm
+endif
 	$(MAKE) -C stdlib $(BOOT_FLEXLINK_CMD) \
 	  COMPILER="../boot/ocamlc -use-prims ../byterun/primitives" all
 	cd stdlib; cp $(LIBFILES) ../boot
@@ -819,19 +820,30 @@ partialclean::
 	rm -rf ocamlc
 
 # The native-code compiler
-
+ifeq "$(HOST)" "EMSCRIPTEN"
+compilerlibs/ocamloptcomp.cma: $(MIDDLE_END) $(WASMCOMP)
+	$(CAMLC) -a -o $@ $^
+else 
 compilerlibs/ocamloptcomp.cma: $(MIDDLE_END) $(ASMCOMP)
 	$(CAMLC) -a -o $@ $^
+endif
 
 partialclean::
 	rm -f compilerlibs/ocamloptcomp.cma
 
 ocamlopt: compilerlibs/ocamlcommon.cma compilerlibs/ocamloptcomp.cma \
-          $(OPTSTART)
+          $(WASMSTART)
 	$(CAMLC) $(LINKFLAGS) -o $@ $^
 
 partialclean::
 	rm -f ocamlopt
+
+# ocamlwasm: compilerlibs/ocamlcommon.cma compilerlibs/ocamloptcomp.cma \
+#           $(WASMSTART)
+# 	$(CAMLC) $(LINKFLAGS) -o $@ $^
+
+# partialclean::
+# 	rm -f ocamlwasm
 
 # The toplevel
 
@@ -920,20 +932,31 @@ partialclean::
 
 # The native-code compiler compiled with itself
 
+ifeq "$(HOST)" "EMSCRIPTEN"
+compilerlibs/ocamloptcomp.cmxa: $(MIDDLE_END:.cmo=.cmx) $(WASMCOMP:.cmo=.cmx)
+	$(CAMLOPT) -a -o $@ $^	
+else 
 compilerlibs/ocamloptcomp.cmxa: $(MIDDLE_END:.cmo=.cmx) $(ASMCOMP:.cmo=.cmx)
 	$(CAMLOPT) -a -o $@ $^
+endif
+
 partialclean::
 	rm -f compilerlibs/ocamloptcomp.cmxa compilerlibs/ocamloptcomp.$(A)
 
 ocamlopt.opt: compilerlibs/ocamlcommon.cmxa compilerlibs/ocamloptcomp.cmxa \
-              $(OPTSTART:.cmo=.cmx)
+              $(WASMSTART:.cmo=.cmx)
 	$(CAMLOPT) $(LINKFLAGS) -o $@ $^
+	
 
 partialclean::
 	rm -f ocamlopt.opt
 
+
+# $(COMMON:.cmo=.cmx) $(BYTECOMP:.cmo=.cmx) $(MIDDLE_END:.cmo=.cmx) \
+# $(WASMCOMP:.cmo=.cmx): ocamlopt
+
 $(COMMON:.cmo=.cmx) $(BYTECOMP:.cmo=.cmx) $(MIDDLE_END:.cmo=.cmx) \
-$(ASMCOMP:.cmo=.cmx): ocamlopt
+$(WASMCOMP:.cmo=.cmx): ocamlopt
 
 # The predefined exceptions and primitives
 
@@ -980,6 +1003,16 @@ asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp tools/cvt_emit
 	echo \# 1 \"$(ARCH)/emit.mlp\" > $@
 	$(CAMLRUN) tools/cvt_emit < $< >> $@ \
 	|| { rm -f $@; exit 2; }
+
+asmcomp/asmgen.ml: 
+	if test -d "$(EMSCRIPTEN)"; then \
+	  (cp asmcomp/asmgen.mlp-wasm asmcomp/asmgen.ml); \
+	else \
+	  (cp asmcomp/asmgen.mlp-native asmcomp/asmgen.ml); \
+	fi;
+
+partialclean::
+	rm -f asmcomp/asmgen.ml
 
 partialclean::
 	rm -f asmcomp/emit.ml
@@ -1352,9 +1385,18 @@ distclean: clean
 	rm -f ocaml ocamlc
 	rm -f testsuite/_log*
 
+partialclean::
+	rm -f boot/*.cm*
+	rm -f boot/*.wasm
+	rm -f boot/*.js
+	rm -f boot/libcamlrun.a
+	rm -f boot/camlheader
+
 wasm:
 	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
 	ar='llvm-ar' EMCC_EXPERIMENTAL_USE_LLD=1 emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+	make coldstart
+	# make coreall
 	make ocamlopt.opt
 
 include .depend

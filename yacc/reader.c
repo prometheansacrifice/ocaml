@@ -1686,10 +1686,12 @@ void make_goal(void)
       fprintf(entry_file,
               "let %s (lexfun : Lexing.lexbuf -> token) (lexbuf : Lexing.lexbuf) =\n   (Parsing.yyparse yytables %d lexfun lexbuf : %s)\n",
               bp->name, bp->entry, bp->tag);
+
       fprintf(interface_file,
               "val %s :\n  (Lexing.lexbuf  -> token) -> Lexing.lexbuf -> %s\n",
               bp->name,
               bp->tag);
+      
       fprintf(action_file,
               "(* Entry %s *)\n", bp->name);
       if (sflag)
@@ -1701,6 +1703,13 @@ void make_goal(void)
         fprintf(action_file,
                 "; (fun __caml_parser_env -> raise "
                 "(Parsing.YYexit (Parsing.peek_val __caml_parser_env 0)))\n");
+
+#ifdef __EMSCRIPTEN__
+      fflush(entry_file);
+      fflush(interface_file);
+      fflush(action_file);
+#endif    
+    
       ntotalrules++;
       last_was_action = 1;
       end_rule();

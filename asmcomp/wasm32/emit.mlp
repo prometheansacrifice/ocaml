@@ -1,0 +1,4 @@
+let fundecl _ = ()
+let data _ = ()
+let begin_assembly () = ()
+let end_assembly () = ()

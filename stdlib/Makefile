@@ -24,7 +24,7 @@ endif
 CAMLYACC ?= ../boot/ocamlyacc
 TARGET_BINDIR ?= $(BINDIR)
 
-COMPILER="../boot/ocamlc -verbose"
+COMPILER="../boot/ocamlc"
 CAMLC=$(CAMLRUN) $(COMPILER)
 COMPFLAGS=-strict-sequence -absname -w +a-4-9-41-42-44-45-48 \
           -g -warn-error A -bin-annot -nostdlib \

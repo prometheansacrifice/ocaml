@@ -933,6 +933,9 @@ void copy_file(FILE **file, char *file_name)
         putc('\n', out);
     }
 
+#ifdef __EMSCRIPTEN__
+    fflush(out);
+#endif   
 }
 
 void output_semantic_actions(void)
@@ -942,7 +945,7 @@ void output_semantic_actions(void)
 
 void output_entries(void)
 {
-  copy_file (&entry_file, entry_file_name);
+  copy_file (&entry_file, entry_file_name);  
 }
 
 void free_itemsets(void)

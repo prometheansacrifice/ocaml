@@ -1864,9 +1864,9 @@ fi
 echo "X11_INCLUDES=$x11_include" >> Makefile
 echo "X11_LINK=$x11_link" >> Makefile
 
-if test "$EMSCRIPTEN"; then
-  otherlibraries=""
-fi
+# if test "$EMSCRIPTEN"; then
+#   otherlibraries=""
+# fi
 
 # Look for BFD library
 
