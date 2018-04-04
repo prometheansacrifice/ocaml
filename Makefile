@@ -180,6 +180,9 @@ WASMCOMP=\
   asmcomp/un_anf.cmo \
   asmcomp/afl_instrument.cmo \
   asmcomp/strmatch.cmo asmcomp/cmmgen.cmo \
+  asmcomp/numeric_error.cmo asmcomp/int.cmo asmcomp/i32.cmo asmcomp/i64.cmo \
+  asmcomp/lib.cmo asmcomp/wasm_types.cmo asmcomp/float.cmo asmcomp/f32.cmo asmcomp/f64.cmo \
+  asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo \
   asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
@@ -982,6 +985,69 @@ beforedepend:: bytecomp/runtimedef.ml
 asmcomp/arch.ml: asmcomp/$(ARCH)/arch.ml
 	cd asmcomp; $(LN) $(ARCH)/arch.ml .
 
+
+# Preprocess the code emitters
+
+asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp tools/cvt_emit
+	echo \# 1 \"$(ARCH)/emit.mlp\" > $@
+	$(CAMLRUN) tools/cvt_emit < $< >> $@ \
+	|| { rm -f $@; exit 2; }
+
+ifeq "$(HOST)" "EMSCRIPTEN"
+
+asmcomp/numeric_error.ml: asmcomp/wasm32/numeric_error.ml
+	cd asmcomp; $(LN) $(ARCH)/numeric_error.ml .
+
+asmcomp/int.ml: asmcomp/wasm32/int.ml
+	cd asmcomp; $(LN) $(ARCH)/int.ml .
+
+asmcomp/i32.ml: asmcomp/wasm32/i32.ml
+	cd asmcomp; $(LN) $(ARCH)/i32.ml .
+
+asmcomp/i64.ml: asmcomp/wasm32/i64.ml
+	cd asmcomp; $(LN) $(ARCH)/i64.ml .
+
+asmcomp/lib.ml: asmcomp/wasm32/lib.ml
+	cd asmcomp; $(LN) $(ARCH)/lib.ml .
+
+asmcomp/wasm_types.ml: asmcomp/wasm32/wasm_types.ml
+	cd asmcomp; $(LN) $(ARCH)/wasm_types.ml .
+
+asmcomp/float.ml: asmcomp/wasm32/float.ml
+	cd asmcomp; $(LN) $(ARCH)/float.ml .
+
+asmcomp/f32.ml: asmcomp/wasm32/f32.ml
+	cd asmcomp; $(LN) $(ARCH)/f32.ml .
+
+asmcomp/f64.ml: asmcomp/wasm32/f64.ml
+	cd asmcomp; $(LN) $(ARCH)/f64.ml .
+
+asmcomp/values.ml: asmcomp/wasm32/values.ml
+	cd asmcomp; $(LN) $(ARCH)/values.ml .
+
+asmcomp/ast.ml: asmcomp/wasm32/ast.ml
+	cd asmcomp; $(LN) $(ARCH)/ast.ml .
+
+asmcomp/utf8.ml: asmcomp/wasm32/utf8.ml
+	cd asmcomp; $(LN) $(ARCH)/utf8.ml .
+
+asmcomp/emit.ml: asmcomp/ast.ml
+
+partialclean::
+	rm -f asmcomp/ast.ml
+	rm -f asmcomp/values.ml
+	rm -f asmcomp/f32.ml
+	rm -f asmcomp/f64.ml
+	rm -f asmcomp/float.ml
+	rm -f asmcomp/wasm_types.ml
+	rm -f asmcomp/lib.ml
+	rm -f asmcomp/i64.ml
+	rm -f asmcomp/i32.ml
+	rm -f asmcomp/int.ml
+	rm -f asmcomp/numeric_error.ml
+
+else 
+
 asmcomp/proc.ml: asmcomp/$(ARCH)/proc.ml
 	cd asmcomp; $(LN) $(ARCH)/proc.ml .
 
@@ -996,13 +1062,8 @@ asmcomp/reload.ml: asmcomp/$(ARCH)/reload.ml
 
 asmcomp/scheduling.ml: asmcomp/$(ARCH)/scheduling.ml
 	cd asmcomp; $(LN) $(ARCH)/scheduling.ml .
-
-# Preprocess the code emitters
-
-asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp tools/cvt_emit
-	echo \# 1 \"$(ARCH)/emit.mlp\" > $@
-	$(CAMLRUN) tools/cvt_emit < $< >> $@ \
-	|| { rm -f $@; exit 2; }
+	
+endif
 
 asmcomp/asmgen.ml: 
 	if test -d "$(EMSCRIPTEN)"; then \
@@ -1011,10 +1072,23 @@ asmcomp/asmgen.ml:
 	  (cp asmcomp/asmgen.mlp-native asmcomp/asmgen.ml); \
 	fi;
 
+
+partialclean::
+	rm -f asmcomp/asmgen.ml
+
+asmcomp/emit.mli: 
+	if test -d "$(EMSCRIPTEN)"; then \
+	  (cp asmcomp/emit.mlip-wasm asmcomp/emit.mli); \
+	else \
+	  (cp asmcomp/emit.mlip-native asmcomp/emit.mli); \
+	fi;
+
+
 partialclean::
 	rm -f asmcomp/asmgen.ml
 
 partialclean::
+	rm -f asmcomp/emit.mli
 	rm -f asmcomp/emit.ml
 
 beforedepend:: asmcomp/emit.ml
@@ -1396,7 +1470,20 @@ wasm:
 	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
 	ar='llvm-ar' EMCC_EXPERIMENTAL_USE_LLD=1 emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
 	make coldstart
-	# make coreall
-	make ocamlopt.opt
+	make opt-core
 
 include .depend
+
+# $(MAKE) checkstack
+# 	$(MAKE) runtime
+# 	$(MAKE) core
+# 	$(MAKE) ocaml
+# 	$(MAKE) opt-core
+# 	$(MAKE) ocamlc.opt
+# 	$(MAKE) otherlibraries $(WITH_DEBUGGER) $(WITH_OCAMLDOC) ocamltest
+# 	$(MAKE) ocamlopt.opt
+# 	$(MAKE) otherlibrariesopt
+# 	$(MAKE) ocamllex.opt ocamltoolsopt ocamltoolsopt.opt $(OCAMLDOC_OPT) \
+# 	  ocamltest.opt
+
+	

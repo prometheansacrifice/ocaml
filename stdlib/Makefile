@@ -24,7 +24,7 @@ endif
 CAMLYACC ?= ../boot/ocamlyacc
 TARGET_BINDIR ?= $(BINDIR)
 
-COMPILER="../boot/ocamlc"
+COMPILER ?= ../boot/ocamlc
 CAMLC=$(CAMLRUN) $(COMPILER)
 COMPFLAGS=-strict-sequence -absname -w +a-4-9-41-42-44-45-48 \
           -g -warn-error A -bin-annot -nostdlib \
@@ -34,7 +34,7 @@ OPTCOMPFLAGS=-O3
 else
 OPTCOMPFLAGS=
 endif
-OPTCOMPILER=../ocamlopt
+OPTCOMPILER ?= ../ocamlopt
 CAMLOPT=$(CAMLRUN) $(OPTCOMPILER)
 CAMLDEP=$(CAMLRUN) ../tools/ocamldep
 
@@ -289,10 +289,8 @@ SPACE := $(EMPTY) $(EMPTY)
 depend:
 	$(CAMLDEP) -slash $(filter-out stdlib.%,$(wildcard *.mli *.ml)) \
 	  > .depend.tmp
-	echo "BURN BABY BURN a"
 	$(CAMLDEP) -slash -pp "$(AWK) -f remove_module_aliases.awk" \
 	  stdlib.ml stdlib.mli >> .depend.tmp
-	echo "BURN BABY BURN b"
 	$(CAMLDEP) -slash $(filter-out stdlib.%,$(wildcard *.ml)) \
 	  | sed -e 's/\.cmx : /.p.cmx : /g' >>.depend.tmp
 	$(CAMLDEP) -slash -pp "$(AWK) -f remove_module_aliases.awk" stdlib.ml \

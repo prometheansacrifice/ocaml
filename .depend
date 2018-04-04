@@ -737,7 +737,7 @@ asmcomp/arch.cmx : utils/config.cmx utils/clflags.cmx
 asmcomp/asmgen.cmo : asmcomp/un_anf.cmi bytecomp/translmod.cmi \
     middle_end/base_types/symbol.cmi asmcomp/split.cmi asmcomp/spill.cmi \
     asmcomp/selection.cmi asmcomp/scheduling.cmi asmcomp/reload.cmi \
-    asmcomp/reg.cmi utils/profile.cmi asmcomp/proc.cmi asmcomp/printmach.cmi \
+    asmcomp/reg.cmi utils/profile.cmi  \
     asmcomp/printcmm.cmi asmcomp/printclambda.cmi \
     typing/primitive.cmi utils/misc.cmi asmcomp/mach.cmi parsing/location.cmi \
     asmcomp/liveness.cmi asmcomp/linscan.cmi \
@@ -747,7 +747,7 @@ asmcomp/asmgen.cmo : asmcomp/un_anf.cmi bytecomp/translmod.cmi \
     asmcomp/emitaux.cmi asmcomp/emit.cmi asmcomp/deadcode.cmi \
     utils/config.cmi asmcomp/compilenv.cmi asmcomp/comballoc.cmi \
     asmcomp/coloring.cmi asmcomp/cmmgen.cmi asmcomp/cmm.cmi \
-    asmcomp/closure.cmi utils/clflags.cmi asmcomp/clambda.cmi asmcomp/CSE.cmo \
+    asmcomp/closure.cmi utils/clflags.cmi asmcomp/clambda.cmi \
     asmcomp/build_export_info.cmi asmcomp/debug/available_regs.cmi \
     asmcomp/asmgen.cmi
 asmcomp/asmgen.cmx : asmcomp/un_anf.cmx bytecomp/translmod.cmx \
@@ -874,7 +874,7 @@ asmcomp/cmm.cmx : bytecomp/lambda.cmx typing/ident.cmx \
 asmcomp/cmm.cmi : bytecomp/lambda.cmi typing/ident.cmi \
     middle_end/debuginfo.cmi parsing/asttypes.cmi
 asmcomp/cmmgen.cmo : asmcomp/un_anf.cmi typing/types.cmi bytecomp/switch.cmi \
-    asmcomp/strmatch.cmi asmcomp/proc.cmi bytecomp/printlambda.cmi \
+    asmcomp/strmatch.cmi  \
     typing/primitive.cmi utils/misc.cmi bytecomp/lambda.cmi typing/ident.cmi \
     middle_end/debuginfo.cmi utils/config.cmi asmcomp/compilenv.cmi \
     asmcomp/cmx_format.cmi asmcomp/cmm.cmi utils/clflags.cmi \
@@ -927,7 +927,7 @@ asmcomp/deadcode.cmx : asmcomp/reg.cmx asmcomp/procb.cmx asmcomp/mach.cmx \
 asmcomp/deadcode.cmi : asmcomp/mach.cmi
 asmcomp/emit.cmo : asmcomp/x86_proc.cmi asmcomp/x86_masm.cmi \
     asmcomp/x86_gas.cmi asmcomp/x86_dsl.cmi asmcomp/x86_ast.cmi \
-    asmcomp/reg.cmi asmcomp/proc.cmi utils/misc.cmi asmcomp/mach.cmi \
+    asmcomp/reg.cmi utils/misc.cmi asmcomp/mach.cmi \
     asmcomp/linearize.cmi asmcomp/emitaux.cmi middle_end/debuginfo.cmi \
     utils/config.cmi asmcomp/compilenv.cmi asmcomp/cmm.cmi utils/clflags.cmi \
     asmcomp/branch_relaxation.cmi asmcomp/arch.cmo asmcomp/emit.cmi
@@ -2142,7 +2142,7 @@ driver/optcompile.cmi : middle_end/backend_intf.cmi
 driver/opterrors.cmo : parsing/location.cmi driver/opterrors.cmi
 driver/opterrors.cmx : parsing/location.cmx driver/opterrors.cmi
 driver/opterrors.cmi :
-driver/optmain.cmo : utils/warnings.cmi utils/profile.cmi asmcomp/proc.cmi \
+driver/optmain.cmo : utils/warnings.cmi utils/profile.cmi \
     asmcomp/printmach.cmi driver/optcompile.cmi utils/misc.cmi \
     driver/makedepend.cmi driver/main_args.cmi parsing/location.cmi \
     asmcomp/import_approx.cmi utils/config.cmi driver/compplugin.cmi \

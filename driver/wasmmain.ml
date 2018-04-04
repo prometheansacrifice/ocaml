@@ -237,7 +237,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let anonymous = anonymous
 end);;
 
-let main () =
+let main () =  
   native_code := true;
   let ppf = Format.err_formatter in
   try
@@ -271,6 +271,10 @@ let main () =
                       compile_only; output_c_object]) > 1
     then
       fatal "Please specify at most one of -pack, -a, -shared, -c, -output-obj";
+    (match !output_name with 
+  | Some s -> print_endline ("wasmmain entry:" ^ s)
+  | None -> print_endline "wasmmain entry: no-name"
+  );
     if !make_archive then begin
       Compmisc.init_path true;
       let target = extract_output !output_name in
@@ -307,6 +311,7 @@ let main () =
           default_output !output_name
       in
       Compmisc.init_path true;
+      print_endline "before...";
       Asmlink.link ppf (get_objfiles ~with_ocamlparam:true) target;
       Warnings.check_fatal ();
     end;

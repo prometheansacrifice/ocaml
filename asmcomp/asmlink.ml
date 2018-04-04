@@ -204,6 +204,7 @@ let scan_file obj_name tolink = match read_file obj_name with
 (* Second pass: generate the startup file and link it with everything else *)
 
 let make_startup_file ppf units_list =
+  print_endline "Make a startup file 123";
   let compile_phrase p = Asmgen.compile_phrase ppf p in
   Location.input_name := "caml_startup"; (* set name of "current" input *)
   Compilenv.reset "_startup";
@@ -241,6 +242,7 @@ let make_startup_file ppf units_list =
   Emit.end_assembly ()
 
 let make_shared_startup_file ppf units =
+  print_endline "make_shared_startup_file";
   let compile_phrase p = Asmgen.compile_phrase ppf p in
   Location.input_name := "caml_startup";
   Compilenv.reset "_shared_startup";
@@ -257,9 +259,10 @@ let make_shared_startup_file ppf units =
 
 let call_linker_shared file_list output_name =
   if not (Ccomp.call_linker Ccomp.Dll output_name file_list "")
-  then raise(Error Linking_error)
+  then (print_endline "linker feedback 1"; raise(Error Linking_error))
 
 let link_shared ppf objfiles output_name =
+  print_endline "link_shared";
   Profile.record_call output_name (fun () ->
     let units_tolink = List.fold_right scan_file objfiles [] in
     List.iter
@@ -310,11 +313,12 @@ let call_linker file_list startup_file output_name =
     else Ccomp.Exe
   in
   if not (Ccomp.call_linker mode output_name files c_lib)
-  then raise(Error Linking_error)
+  then (print_endline "\nlinker feedback 2"; raise(Error Linking_error))
 
 (* Main entry point *)
 
 let link ppf objfiles output_name =
+  print_endline "LINK IT";
   Profile.record_call output_name (fun () ->
     let stdlib =
       if !Clflags.gprofile then "stdlib.p.cmxa" else "stdlib.cmxa" in

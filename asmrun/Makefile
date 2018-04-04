@@ -157,6 +157,16 @@ $(LINKEDFILES): %.c: ../byterun/%.c
 %.$(O): %.c
 	$(CC) -c $(CFLAGS) $(CPPFLAGS) $<
 
+# wasm32.o:
+# 	emcc $(ASPPFLAGS) -o $@ $< || \
+# 	{ echo "If your assembler produced syntax errors, it is probably";\
+#           echo "unhappy with the preprocessor. Check your assembler, or";\
+#           echo "try producing $*.o by hand.";\
+#           exit 2; }
+
+wasm32.o:
+	touch wasm32.o
+
 %.o: %.S
 	$(ASPP) $(ASPPFLAGS) -o $@ $< || \
 	{ echo "If your assembler produced syntax errors, it is probably";\

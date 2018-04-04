@@ -582,7 +582,7 @@ case "$cc,$target" in
     echo "#endif" >> m.h;;
   *,EMSCRIPTEN)
     exe=".js"
-    common_cflags="-s WASM=1 -s NODERAWFS=1 -s ALLOW_MEMORY_GROWTH=1 --js-library /users/Sander/Projects/ocaml-wasm/library_test.js $common_cflags";
+    common_cflags="-s WASM=1 -s NODERAWFS=1 -s ALLOW_MEMORY_GROWTH=1 $common_cflags";
     # "emcc --js-library stdlib/helper.js" 
   ;;
 esac
@@ -1070,6 +1070,8 @@ case "$arch,$system" in
                   aspp="${TOOLPREF}cc -c";;
   *,freebsd)      as="${TOOLPREF}as"
                   aspp="${TOOLPREF}cc -c";;
+  wasm32,*)       as='llvm-as'
+                  aspp='emcc -c';;
   amd64,*|arm,*|arm64,*|i386,*|power,bsd*|power,netbsd)
                   as="${TOOLPREF}as"
                   case "$ccfamily" in

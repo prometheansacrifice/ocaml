@@ -65,6 +65,7 @@ let display_msvc_output file name =
     Sys.remove file
 
 let compile_file ?output ?(opt="") name =
+  print_endline "compile file...";
   let (pipe, file) =
     if Config.ccomp_type = "msvc" && not !Clflags.verbose then
       try
@@ -178,6 +179,12 @@ let call_linker mode output_name files extra =
         | "msvc" -> "/libpath:"
         | _ -> "-L"
       in
+      Printf.printf "A1: %s%s %s %s %s"
+        Config.native_pack_linker
+        (Filename.quote output_name)
+        (quote_prefixed l_prefix !Config.load_path)
+        (quote_files (remove_Wl files))
+        extra;
       Printf.sprintf "%s%s %s %s %s"
         Config.native_pack_linker
         (Filename.quote output_name)
@@ -185,6 +192,21 @@ let call_linker mode output_name files extra =
         (quote_files (remove_Wl files))
         extra
     else
+      (Printf.printf "A2: %s -o %s %s %s %s %s %s %s"
+        (match !Clflags.c_compiler, mode with
+        | Some cc, _ -> cc
+        | None, Exe -> Config.mkexe
+        | None, Dll -> Config.mkdll
+        | None, MainDll -> Config.mkmaindll
+        | None, Partial -> assert false
+        )
+        (Filename.quote output_name)
+        (if !Clflags.gprofile then Config.cc_profile else "")
+        ""  (*(Clflags.std_include_flag "-I")*)
+        (quote_prefixed "-L" !Config.load_path)
+        (String.concat " " (List.rev !Clflags.all_ccopts))
+        (quote_files files)
+        extra;
       Printf.sprintf "%s -o %s %s %s %s %s %s %s"
         (match !Clflags.c_compiler, mode with
         | Some cc, _ -> cc
@@ -199,6 +221,6 @@ let call_linker mode output_name files extra =
         (quote_prefixed "-L" !Config.load_path)
         (String.concat " " (List.rev !Clflags.all_ccopts))
         (quote_files files)
-        extra
+        extra)
   in
   command cmd = 0
