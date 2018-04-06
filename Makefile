@@ -183,7 +183,7 @@ WASMCOMP=\
   asmcomp/numeric_error.cmo asmcomp/int.cmo asmcomp/i32.cmo asmcomp/i64.cmo \
   asmcomp/lib.cmo asmcomp/wasm_types.cmo asmcomp/float.cmo asmcomp/f32.cmo asmcomp/f64.cmo \
   asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo \
-  asmcomp/emitaux.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
+  asmcomp/emitaux.cmo asmcomp/encode.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
  
@@ -1031,7 +1031,11 @@ asmcomp/ast.ml: asmcomp/wasm32/ast.ml
 asmcomp/utf8.ml: asmcomp/wasm32/utf8.ml
 	cd asmcomp; $(LN) $(ARCH)/utf8.ml .
 
-asmcomp/emit.ml: asmcomp/ast.ml
+asmcomp/encode.ml: asmcomp/wasm32/encode.ml
+	cd asmcomp; $(LN) $(ARCH)/encode.ml .
+
+# asmcomp/emit.ml: asmcomp/ast.ml
+
 
 partialclean::
 	rm -f asmcomp/ast.ml
@@ -1045,6 +1049,7 @@ partialclean::
 	rm -f asmcomp/i32.ml
 	rm -f asmcomp/int.ml
 	rm -f asmcomp/numeric_error.ml
+	rm -f asmcomp/encode.ml
 
 else 
 
@@ -1062,7 +1067,7 @@ asmcomp/reload.ml: asmcomp/$(ARCH)/reload.ml
 
 asmcomp/scheduling.ml: asmcomp/$(ARCH)/scheduling.ml
 	cd asmcomp; $(LN) $(ARCH)/scheduling.ml .
-	
+
 endif
 
 asmcomp/asmgen.ml: 
