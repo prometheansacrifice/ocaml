@@ -298,13 +298,7 @@ let end_assembly () = (
   print_endline "turn_missing_functions_to_imports";
   turn_missing_functions_to_imports ();
   create_symbol_table ();
-  let s = Encode.encode !wasm_module in
-  (match !Clflags.output_name with 
-  | Some s -> print_endline ("TEST:" ^ s)
-  | None -> print_endline "meh...");
-  output_string !Emitaux.output_channel s;
-  close_out !Emitaux.output_channel;
-  print_endline "MKAY";
+  Encode.encode !wasm_module;  
   wasm_module := {
     types = [];
     globals = [];

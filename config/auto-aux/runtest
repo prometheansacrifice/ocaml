@@ -15,12 +15,24 @@
 #*                                                                        *
 #**************************************************************************
 
-cmd="$cc $cflags -o tst $* $ldflags $cclibs"
+if test "$EMSCRIPTEN"; then
+  cmd="$cc $cflags -v -o tst.js $* $ldflags $cclibs"
+else
+  cmd="$cc $cflags -v -o tst $* $ldflags $cclibs"
+fi
 
 if $verbose; then
   echo "runtest: $cmd" >&2
-  $cmd || exit 100
+  $cmd || echo 100
 else
+  echo "runtest: $cmd" >&2
   $cmd 2> /dev/null || exit 100
 fi
-exec ./tst
+
+if test "$EMSCRIPTEN"; then
+  exec node ./tst.js
+else
+  exec ./tst
+fi
+
+

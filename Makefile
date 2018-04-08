@@ -56,8 +56,8 @@ endif
 
 
 ifeq "$(HOST)" "EMSCRIPTEN"
-CAMLRUN ?= cp boot/ocamlrun.wasm . && node boot/ocamlrun.js
-CAMLYACC ?= cp boot/ocamlyacc.wasm . && node boot/ocamlyacc.js
+CAMLRUN ?= cp boot/ocamlrun.* . && node boot/ocamlrun.js
+CAMLYACC ?= cp boot/ocamlyacc.* . && node boot/ocamlyacc.js
 else
 CAMLRUN ?= boot/ocamlrun
 CAMLYACC ?= boot/ocamlyacc
@@ -1473,9 +1473,12 @@ partialclean::
 
 wasm:
 	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
-	ar='llvm-ar' EMCC_EXPERIMENTAL_USE_LLD=1 emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
-	make coldstart
-	make opt-core
+	export EMCC_WASM_BACKEND=1 
+	export EMCC_EXPERIMENTAL_USE_LLD=0
+	ar='llvm-ar' emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+	emmake make coldstart
+	emmake make opt-core
+	node boot/ocamlrun.js ./ocamlopt -o test.js test.ml -I stdlib
 
 include .depend
 

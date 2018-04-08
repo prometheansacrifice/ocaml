@@ -582,7 +582,8 @@ case "$cc,$target" in
     echo "#endif" >> m.h;;
   *,EMSCRIPTEN)
     exe=".js"
-    common_cflags="-s WASM=1 -s NODERAWFS=1 -s ALLOW_MEMORY_GROWTH=1 $common_cflags";
+    common_cflags="-s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s NODERAWFS=1 $common_cflags";
+    echo "#define EMSCRIPTEN" >> m.h
     # "emcc --js-library stdlib/helper.js" 
   ;;
 esac

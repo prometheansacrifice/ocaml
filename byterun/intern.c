@@ -65,6 +65,8 @@ static value intern_block = 0;
 /* Point to the heap block allocated as destination block.
    Meaningful only if intern_extra_block is NULL. */
 
+struct ext_table caml_code_fragments_table;
+
 static char * intern_resolve_code_pointer(unsigned char digest[16],
                                           asize_t offset);
 

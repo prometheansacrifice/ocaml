@@ -103,7 +103,7 @@ let compile_unit _output_prefix asm_filename keep_asm
       if not keep_asm then remove_file asm_filename;
       raise exn
     end;
-
+    Encode.write_file obj_filename;
   with exn ->
     remove_file obj_filename;
     raise exn

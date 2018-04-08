@@ -25,7 +25,7 @@ $(foreach i,BINDIR LIBDIR STUBLIBDIR MANDIR,$(eval $(shellquote)))
 endif
 
 ifeq "$(HOST)" "EMSCRIPTEN"
-	CAMLRUN ?= cp ../boot/ocamlrun.wasm . && node ../boot/ocamlrun.js
+	CAMLRUN ?= cp ../boot/ocamlrun.* . && node ../boot/ocamlrun.js
 else
 	CAMLRUN ?= ../boot/ocamlrun
 endif
