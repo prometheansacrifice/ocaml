@@ -418,6 +418,8 @@ beforedepend:: utils/config.ml
 coldstart:
 	$(MAKE) -C byterun $(BOOT_FLEXLINK_CMD) all
 	cp byterun/ocamlrun$(EXE) boot/ocamlrun$(EXE)
+	echo "--->> FIX ME PROPERLY <<---"
+	cp fixed_ocamlrun.js boot/ocamlrun$(EXE)
 ifeq "$(HOST)" "EMSCRIPTEN"
 	cp byterun/ocamlrun.wasm boot/ocamlrun.wasm 
 endif
@@ -1474,7 +1476,7 @@ partialclean::
 wasm:
 	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
 	export EMCC_WASM_BACKEND=1 
-	export EMCC_EXPERIMENTAL_USE_LLD=0
+	export EMCC_EXPERIMENTAL_USE_LLD=1
 	ar='llvm-ar' emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
 	emmake make coldstart
 	emmake make opt-core
