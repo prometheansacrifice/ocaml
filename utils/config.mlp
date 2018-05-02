@@ -138,6 +138,8 @@ let ext_dll = "%%EXT_DLL%%"
 let host = "%%HOST%%"
 let target = "%%TARGET%%"
 
+let wasm32 = %%WASM32%%
+
 let default_executable_name =
   match Sys.os_type with
     "Unix" -> "a.out"
@@ -177,6 +179,7 @@ let print_config oc =
   p "asm" asm;
   p_bool "asm_cfi_supported" asm_cfi_supported;
   p_bool "with_frame_pointers" with_frame_pointers;
+  p_bool "wasm32" wasm32;
   p "ext_exe" ext_exe;
   p "ext_obj" ext_obj;
   p "ext_asm" ext_asm;

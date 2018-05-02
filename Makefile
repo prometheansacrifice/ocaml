@@ -54,15 +54,8 @@ else
 LN = ln -sf
 endif
 
-
-ifeq "$(HOST)" "EMSCRIPTEN"
-CAMLRUN ?= cp boot/ocamlrun.* . && node boot/ocamlrun.js
-CAMLYACC ?= cp boot/ocamlyacc.* . && node boot/ocamlyacc.js
-else
 CAMLRUN ?= boot/ocamlrun
 CAMLYACC ?= boot/ocamlyacc
-endif
-
 
 include stdlib/StdlibModules
 
@@ -398,6 +391,7 @@ utils/config.ml: utils/config.mlp config/Makefile Makefile
 	    $(call SUBST,WITH_SPACETIME) \
 	    $(call SUBST,ENABLE_CALL_COUNTS) \
 	    $(call SUBST,FLAT_FLOAT_ARRAY) \
+		$(call SUBST,WASM32) \
 	    $< > $@
 
 ifeq "$(UNIX_OR_WIN32)" "unix"
@@ -418,16 +412,8 @@ beforedepend:: utils/config.ml
 coldstart:
 	$(MAKE) -C byterun $(BOOT_FLEXLINK_CMD) all
 	cp byterun/ocamlrun$(EXE) boot/ocamlrun$(EXE)
-	echo "--->> FIX ME PROPERLY <<---"
-	cp fixed_ocamlrun.js boot/ocamlrun$(EXE)
-ifeq "$(HOST)" "EMSCRIPTEN"
-	cp byterun/ocamlrun.wasm boot/ocamlrun.wasm 
-endif
 	$(MAKE) -C yacc $(BOOT_FLEXLINK_CMD) all
 	cp yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
-ifeq "$(HOST)" "EMSCRIPTEN"
-	cp yacc/ocamlyacc.wasm boot/ocamlyacc.wasm
-endif
 	$(MAKE) -C stdlib $(BOOT_FLEXLINK_CMD) \
 	  COMPILER="../boot/ocamlc -use-prims ../byterun/primitives" all
 	cd stdlib; cp $(LIBFILES) ../boot
@@ -825,7 +811,7 @@ partialclean::
 	rm -rf ocamlc
 
 # The native-code compiler
-ifeq "$(HOST)" "EMSCRIPTEN"
+ifeq "$(WASM32)" "true"
 compilerlibs/ocamloptcomp.cma: $(MIDDLE_END) $(WASMCOMP)
 	$(CAMLC) -a -o $@ $^
 else 
@@ -937,7 +923,7 @@ partialclean::
 
 # The native-code compiler compiled with itself
 
-ifeq "$(HOST)" "EMSCRIPTEN"
+ifeq "$(WASM32)" "true"
 compilerlibs/ocamloptcomp.cmxa: $(MIDDLE_END:.cmo=.cmx) $(WASMCOMP:.cmo=.cmx)
 	$(CAMLOPT) -a -o $@ $^	
 else 
@@ -982,59 +968,54 @@ partialclean::
 
 beforedepend:: bytecomp/runtimedef.ml
 
-# Choose the right machine-dependent files
+ifeq "$(WASM32)" "true" 
 
-asmcomp/arch.ml: asmcomp/$(ARCH)/arch.ml
-	cd asmcomp; $(LN) $(ARCH)/arch.ml .
+asmcomp/arch.ml: asmcomp/wasm32/arch.ml
+	cd asmcomp; $(LN) wasm32/arch.ml .
 
-
-# Preprocess the code emitters
-
-asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp tools/cvt_emit
-	echo \# 1 \"$(ARCH)/emit.mlp\" > $@
+asmcomp/emit.ml: asmcomp/wasm32/emit.mlp tools/cvt_emit
+	echo \# 1 \"wasm32/emit.mlp\" > $@
 	$(CAMLRUN) tools/cvt_emit < $< >> $@ \
 	|| { rm -f $@; exit 2; }
 
-ifeq "$(HOST)" "EMSCRIPTEN"
-
 asmcomp/numeric_error.ml: asmcomp/wasm32/numeric_error.ml
-	cd asmcomp; $(LN) $(ARCH)/numeric_error.ml .
+	cd asmcomp; $(LN) wasm32/numeric_error.ml .
 
 asmcomp/int.ml: asmcomp/wasm32/int.ml
-	cd asmcomp; $(LN) $(ARCH)/int.ml .
+	cd asmcomp; $(LN) wasm32/int.ml .
 
 asmcomp/i32.ml: asmcomp/wasm32/i32.ml
-	cd asmcomp; $(LN) $(ARCH)/i32.ml .
+	cd asmcomp; $(LN) wasm32/i32.ml .
 
 asmcomp/i64.ml: asmcomp/wasm32/i64.ml
-	cd asmcomp; $(LN) $(ARCH)/i64.ml .
+	cd asmcomp; $(LN) wasm32/i64.ml .
 
 asmcomp/lib.ml: asmcomp/wasm32/lib.ml
-	cd asmcomp; $(LN) $(ARCH)/lib.ml .
+	cd asmcomp; $(LN) wasm32/lib.ml .
 
 asmcomp/wasm_types.ml: asmcomp/wasm32/wasm_types.ml
-	cd asmcomp; $(LN) $(ARCH)/wasm_types.ml .
+	cd asmcomp; $(LN) wasm32/wasm_types.ml .
 
 asmcomp/float.ml: asmcomp/wasm32/float.ml
-	cd asmcomp; $(LN) $(ARCH)/float.ml .
+	cd asmcomp; $(LN) wasm32/float.ml .
 
 asmcomp/f32.ml: asmcomp/wasm32/f32.ml
-	cd asmcomp; $(LN) $(ARCH)/f32.ml .
+	cd asmcomp; $(LN) wasm32/f32.ml .
 
 asmcomp/f64.ml: asmcomp/wasm32/f64.ml
-	cd asmcomp; $(LN) $(ARCH)/f64.ml .
+	cd asmcomp; $(LN) wasm32/f64.ml .
 
 asmcomp/values.ml: asmcomp/wasm32/values.ml
-	cd asmcomp; $(LN) $(ARCH)/values.ml .
+	cd asmcomp; $(LN) wasm32/values.ml .
 
 asmcomp/ast.ml: asmcomp/wasm32/ast.ml
-	cd asmcomp; $(LN) $(ARCH)/ast.ml .
+	cd asmcomp; $(LN) wasm32/ast.ml .
 
 asmcomp/utf8.ml: asmcomp/wasm32/utf8.ml
-	cd asmcomp; $(LN) $(ARCH)/utf8.ml .
+	cd asmcomp; $(LN) wasm32/utf8.ml .
 
 asmcomp/encode.ml: asmcomp/wasm32/encode.ml
-	cd asmcomp; $(LN) $(ARCH)/encode.ml .
+	cd asmcomp; $(LN) wasm32/encode.ml .
 
 # asmcomp/emit.ml: asmcomp/ast.ml
 
@@ -1055,6 +1036,19 @@ partialclean::
 
 else 
 
+# Choose the right machine-dependent files
+
+asmcomp/arch.ml: asmcomp/$(ARCH)/arch.ml
+	cd asmcomp; $(LN) $(ARCH)/arch.ml .
+
+
+# Preprocess the code emitters
+
+asmcomp/emit.ml: asmcomp/$(ARCH)/emit.mlp tools/cvt_emit
+	echo \# 1 \"$(ARCH)/emit.mlp\" > $@
+	$(CAMLRUN) tools/cvt_emit < $< >> $@ \
+	|| { rm -f $@; exit 2; }
+
 asmcomp/proc.ml: asmcomp/$(ARCH)/proc.ml
 	cd asmcomp; $(LN) $(ARCH)/proc.ml .
 
@@ -1072,24 +1066,23 @@ asmcomp/scheduling.ml: asmcomp/$(ARCH)/scheduling.ml
 
 endif
 
-asmcomp/asmgen.ml: 
-	if test -d "$(EMSCRIPTEN)"; then \
-	  (cp asmcomp/asmgen.mlp-wasm asmcomp/asmgen.ml); \
-	else \
-	  (cp asmcomp/asmgen.mlp-native asmcomp/asmgen.ml); \
-	fi;
+asmcomp/asmgen.ml:
+ifeq "$(WASM32)" "true" 
+	  (cp asmcomp/asmgen.mlp-wasm asmcomp/asmgen.ml)
+else
+	  (cp asmcomp/asmgen.mlp-native asmcomp/asmgen.ml)
+endif
 
 
 partialclean::
 	rm -f asmcomp/asmgen.ml
 
 asmcomp/emit.mli: 
-	if test -d "$(EMSCRIPTEN)"; then \
-	  (cp asmcomp/emit.mlip-wasm asmcomp/emit.mli); \
-	else \
-	  (cp asmcomp/emit.mlip-native asmcomp/emit.mli); \
-	fi;
-
+ifeq "$(WASM32)" "true" 
+	  (cp asmcomp/emit.mlip-wasm asmcomp/emit.mli)
+else
+	  (cp asmcomp/emit.mlip-native asmcomp/emit.mli)
+endif
 
 partialclean::
 	rm -f asmcomp/asmgen.ml
@@ -1264,11 +1257,7 @@ partialclean::
 checkstack:
 ifeq "$(UNIX_OR_WIN32)" "unix"
 	$(MKEXE) $(OUTPUTEXE)tools/checkstack$(EXE) tools/checkstack.c	
-ifeq "$(HOST)" "EMSCRIPTEN"
-	cd tools && node checkstack$(EXE)
-else 
 	checkstack$(EXE)
-endif	
 	rm -f tools/checkstack$(EXE)
 else
 	@
@@ -1473,14 +1462,30 @@ partialclean::
 	rm -f boot/libcamlrun.a
 	rm -f boot/camlheader
 
-wasm:
-	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
-	export EMCC_WASM_BACKEND=1 
-	export EMCC_EXPERIMENTAL_USE_LLD=1
-	ar='llvm-ar' emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
-	emmake make coldstart
-	emmake make opt-core
-	node boot/ocamlrun.js ./ocamlopt -o test.js test.ml -I stdlib
+# wasm:
+# 	# ./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+# 	export EMCC_WASM_BACKEND=1 
+# 	export EMCC_EXPERIMENTAL_USE_LLD=1
+# 	export EMCC_DEBUG=0
+# 	ar='llvm-ar' emconfigure ./configure -cc emcc -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph
+# 	emmake make coldstart
+# 	emmake make opt-core
+# 	node boot/ocamlrun.js ./ocamlopt -o test.js test.ml -I stdlib
+# 	# ../binaryen/bin/s2wasm stdlib/libasmrun.a -o stdlib/libasmrun.wasm
+# 	# ../llvmwasm/llvm-build/bin/lld -flavor wasm -o test.wasm '-Lstdlib' '-L/usr/local/lib/ocaml'  '/tmp/camlstartup17433d.o' 'stdlib/std_exit.o' 'test.o' 'stdlib/stdlib.o' 'stdlib/libasmrun.a'
+
+libasmrun-wasm:
+	../wabt/bin/wat2wasm libasmrun.wat -r -o libasmrun.wasm
+
+wasm32-all:
+	./configure -no-pthread -no-debugger -no-curses -no-ocamldoc -no-graph -target-wasm32
+	make coldstart	
+	make wasm32
+
+wasm32:
+	make opt-core
+	make libasmrun-wasm
+	boot/ocamlrun ./ocamlopt -o test test.ml -I stdlib -dstartup
 
 include .depend
 

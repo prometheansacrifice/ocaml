@@ -251,14 +251,12 @@ let main () =
     if !gprofile && not Config.profiling then
       fatal "Profiling with \"gprof\" is not supported on this platform.";
     begin try
-      print_endline "mkay...1";
       Compenv.process_deferred_actions
         (ppf,
          Optcompile.implementation ~backend,
          Optcompile.interface,
          ".cmx",
          ".cmxa");
-        print_endline "mkay...2";
     with Arg.Bad msg ->
       begin
         prerr_endline msg;
@@ -272,20 +270,14 @@ let main () =
                      [make_package; make_archive; shared;
                       compile_only; output_c_object]) > 1
     then
-      fatal "Please specify at most one of -pack, -a, -shared, -c, -output-obj";
-    (match !output_name with 
-  | Some s -> print_endline ("wasmmain entry:" ^ s)
-  | None -> print_endline "wasmmain entry: no-name"
-  );
+      fatal "Please specify at most one of -pack, -a, -shared, -c, -output-obj";  
     if !make_archive then begin
-      print_endline "archive";
       Compmisc.init_path true;
       let target = extract_output !output_name in
       Asmlibrarian.create_archive (get_objfiles ~with_ocamlparam:false) target;
       Warnings.check_fatal ();
     end
     else if !make_package then begin
-      print_endline "package";
       Compmisc.init_path true;
       let target = extract_output !output_name in
       Asmpackager.package_files ppf (Compmisc.initial_env ())
@@ -293,14 +285,12 @@ let main () =
       Warnings.check_fatal ();
     end
     else if !shared then begin
-      print_endline "shared";
       Compmisc.init_path true;
       let target = extract_output !output_name in
       Asmlink.link_shared ppf (get_objfiles ~with_ocamlparam:false) target;
       Warnings.check_fatal ();
     end
     else if not !compile_only && !objfiles <> [] then begin
-      print_endline "HIERO";
       let target =
         if !output_c_object then
           let s = extract_output !output_name in
@@ -317,7 +307,6 @@ let main () =
           default_output !output_name
       in
       Compmisc.init_path true;
-      print_endline "before...";
       Asmlink.link ppf (get_objfiles ~with_ocamlparam:true) target;
       Warnings.check_fatal ();
     end;

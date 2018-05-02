@@ -20,10 +20,10 @@ type stream =
   patches : (int * char) list ref
 }
 
-(* let table_relocs:func_reloc list = [] *)
+(* let table_relocs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = [] *)
 
-(* let func_relocs:func_reloc list = []
-let func_relocs:func_reloc list = [] *)
+(* let R_WEBASSEMBLY_FUNCTION_INDEX_LEBs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = []
+let R_WEBASSEMBLY_FUNCTION_INDEX_LEBs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = [] *)
 
 let stream () = {buf = Buffer.create 8192; patches = ref []}
 let pos s = Buffer.length s.buf
@@ -39,11 +39,14 @@ let to_string s =
 (* Encoding *)
 
 type relocation =
-  | Func_reloc of int32 * Ast.var
-  | Memory_address_reloc of int32 * Ast.var
-  | Static_address_reloc of int32
-  | Type_reloc of int32 * Ast.var
-  | Global_reloc of int32 * Ast.var
+  | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * Ast.var 
+  | R_WEBASSEMBLY_TABLE_INDEX_SLEB
+  | R_WEBASSEMBLY_TABLE_INDEX_I32
+  | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var
+  | R_WEBASSEMBLY_MEMORY_ADDR_SLEB  
+  | R_WEBASSEMBLY_MEMORY_ADDR_I32
+  | R_WEBASSEMBLY_TYPE_INDEX_LEB of int32 * Ast.var
+  | R_WEBASSEMBLY_GLOBAL_INDEX_LEB of int32 * Ast.var
 
 let encode_result = ref ""
 
@@ -58,7 +61,7 @@ let encode m =
     let u8 i = put s (Char.chr (i land 0xff))
     let u16 i = u8 (i land 0xff); u8 (i lsr 8)
     let u32 i =
-      Int32.(u16 (to_int (logand i 0xffffl));
+      Int32.(u16 (to_int (logand i 0xffffl) );
              u16 (to_int (shift_right i 16)))
     let u64 i =
       Int64.(u32 (to_int32 (logand i 0xffffffffL));
@@ -76,16 +79,17 @@ let encode m =
 
     let vu1 i = vu64 Int64.(logand (of_int i) 1L)
     let vu32 i = vu64 Int64.(logand (of_int32 i) 0xffffffffL)
-    let vu32p i p =
-      let start = pos s in
-      vu32 i;
-      let end_ = pos s in
-      let padding = p - (end_ - start) - 1 in
-      for i = 0 to padding do
-        ignore(i);
-        put s (Char.chr 0x80)
-      done;
-      put s (Char.chr 0x00)
+    let vu32_fixed i = (
+      let i = Int64.of_int32 i in
+      Int64.(
+        u8 ((to_int (logand i 0x7fL)) lor 0x80);
+        u8 ((to_int  (logand (shift_right_logical i 7) 0x7fL) lor 0x80));
+        u8 ((to_int  (logand (shift_right_logical i 14) 0x7fL) lor 0x80)); 
+        u8 ((to_int  (logand (shift_right_logical i 21) 0x7fL) lor 0x80));
+        u8 (to_int (logand (shift_right_logical i 28) 0x0fL))
+      )
+    )
+    
 
     let vs7 i = vs64 (Int64.of_int i)
     let vs32 i = vs64 (Int64.of_int32 i)
@@ -162,14 +166,27 @@ let encode m =
     let op n = u8 n
     let end_ () = op 0x0b
 
-    let memop {align; offset; _} = vu32 (Int32.of_int align); vu32 offset
+    let code_pos = ref (-1l)
+
+    let memop {align; offset; _} =             
+      vu32 (Int32.of_int align); 
+      let p = pos s in
+      print_endline ("- write memory operation at: " ^ Int32.to_string (Int32.sub (Int32.of_int p) !code_pos));
+      relocations := !relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_LEB (Int32.of_int p, offset)];
+      vu32_fixed offset
 
     let var x = vu32 x
+
+    let reloc_index x = 
+      vu32_fixed x
+    
     let temp = ref None
-    let code_pos = ref (-1l)
+    
     let rec instr e =
       (match e with
       | CallIndirect _ -> ()
+      | Load _ -> ()
+      | Store _ -> ()
       | _ -> temp := None);
 
       match e with
@@ -190,8 +207,8 @@ let encode m =
       | Call x ->
           op 0x10;
           let p = pos s in
-          relocations := !relocations @ [Func_reloc (Int32.of_int p, x.index)];
-          var x.index
+          relocations := !relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, x.index)];          
+          reloc_index x.index
       | CallIndirect x ->
         op 0x11;
         (* (match !temp with
@@ -199,9 +216,8 @@ let encode m =
         | None -> ());
         temp := None; *)
         let p2 = pos s in
-        print_endline("CallIndirect: " ^ string_of_int (p2 - Int32.to_int (!code_pos)));
-        relocations := !relocations @ [Type_reloc (Int32.of_int p2, x)];
-        var x;
+        relocations := !relocations @ [R_WEBASSEMBLY_TYPE_INDEX_LEB (Int32.of_int p2, x)];
+        reloc_index x;
         u8 0x00
       | Drop -> op 0x1a
       | Select -> op 0x1b
@@ -212,11 +228,13 @@ let encode m =
       | GetGlobal x ->
         op 0x23;
         let p = pos s in
-        relocations := !relocations @ [Global_reloc (Int32.of_int p, x)];
-        var x
+        relocations := !relocations @ [R_WEBASSEMBLY_GLOBAL_INDEX_LEB (Int32.of_int p, x)];
+        reloc_index x
       | SetGlobal x ->
         op 0x24;
-        var x
+        let p = pos s in
+        relocations := !relocations @ [R_WEBASSEMBLY_GLOBAL_INDEX_LEB (Int32.of_int p, x)];
+        reloc_index x
       | Load ({ty = I32Type; sz = None; _} as mo) -> op 0x28; memop mo
       | Load ({ty = I64Type; sz = None; _} as mo) -> op 0x29; memop mo
       | Load ({ty = F32Type; sz = None; _} as mo) -> op 0x2a; memop mo
@@ -258,16 +276,19 @@ let encode m =
       | Store {ty = F32Type | F64Type; sz = Some _; _} -> assert false
       | CurrentMemory -> op 0x3f; u8 0x00
       | GrowMemory -> op 0x40; u8 0x00
-      | Const (I32 c) ->
+      | Const { literal = I32 c; name } ->
+        (* need to figure out: 
+           - is this an address? ->  R_WEBASSEMBLY_TABLE_INDEX_SLEB
+           - is this a global? ->  R_WEBASSEMBLY_MEMORY_ADDR_SLEB
+           - 
+        *)
         op 0x41;
         let p = pos s in
         temp := Some (p, c);
         vs32 c
-      | Const (I64 c) -> op 0x42; vs64 c
-      | Const (F32 c) -> op 0x43; f32 c
-      | Const (F64 c) -> op 0x44; f64 c
-      | Link _ -> assert false
-      | DelayedConst c -> print_endline ("Delayed: " ^ c)
+      | Const { literal = I64 c; _ } -> op 0x42; vs64 c
+      | Const { literal = F32 c; _ } -> op 0x43; f32 c
+      | Const { literal = F64 c; _ } -> op 0x44; f64 c
 
       | Test (I32 I32Op.Eqz) -> op 0x45
       | Test (I64 I64Op.Eqz) -> op 0x50
@@ -420,13 +441,16 @@ let encode m =
       list instr c; end_ ()
 
     (* Sections *)
-
+    let code_section_index = ref 0
+    let section_counter = ref 0
     let section id f x needed =
       if needed then begin
+        section_counter := !section_counter + 1;
         u8 id;
         let g = gap32 () in
         let p = pos s in
         f x;
+        print_endline (string_of_int id ^ " - the section size should be -> " ^ string_of_int (pos s - p));
         patch_gap32 g (pos s - p)
       end
 
@@ -521,16 +545,15 @@ let encode m =
 
     let code f =
       let {locals; body; _} = f in
-      print_endline ("Code pos:" ^ string_of_int (pos s - (Int32.to_int !code_pos)));
       let g = gap32 () in
       let p = pos s in
       vec local (compress locals);
       list instr body;
       end_ ();
-      print_endline ("EndPos:" ^ string_of_int (pos s - (Int32.to_int !code_pos)));
       patch_gap32 g (pos s - p)
 
     let code_section fs =
+      code_section_index := !section_counter;
       code_pos := Int32.of_int (pos s + 6);
       section 10 (vec code) fs (fs <> [])
 
@@ -540,7 +563,7 @@ let encode m =
       var index; const offset; dat init
 
     let table_segment seg =
-      segment (vec var) seg
+      segment (vec reloc_index) seg
 
     let elem_section elems =
       section 9 (vec table_segment) elems (elems <> [])
@@ -577,16 +600,16 @@ let encode m =
       section 11 (vec data_segment) data (data <> [])
 
     let reloc_code symbols data =
-      u8 10;
+      vu32 (Int32.of_int !code_section_index);
       vu32 (Int32.of_int (List.length !relocations));
       List.iter (fun r ->
         match r with
-        | Type_reloc (offset, index) ->
+        | R_WEBASSEMBLY_TYPE_INDEX_LEB (offset, index) ->
           u8 6;
-          vu32p (Int32.sub offset !code_pos) 5;
+          vu32 (Int32.sub offset !code_pos); 
+           (* 5; *)
           vu32 index
-
-        | Func_reloc (offset, index_) ->
+        | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, index_) ->
           (let symbol_index = ref (-1) in
           List.iteri (fun i s -> match s.details with
             | Import index when index = index_ -> symbol_index := i
@@ -594,12 +617,25 @@ let encode m =
             | _ -> ()) symbols;
           u8 0;
           vu32 (Int32.sub offset !code_pos);
-          vu32 (Int32.of_int !symbol_index))
-        | Memory_address_reloc (offset, index) ->
+          vu32 (Int32.of_int !symbol_index));
+        | R_WEBASSEMBLY_MEMORY_ADDR_LEB (offset_, index_) -> 
+          (
+            let symbol_index = ref (-1) in
+            List.iteri (fun i s -> match s.details with
+            | Data { index; offset; _ } when index = index_ -> (
+                symbol_index := i
+              )
+            | _ -> ()) symbols;
+            u8 3;
+            vu32 (Int32.sub offset_ !code_pos);
+            vu32 (Int32.of_int !symbol_index);
+            vs32 0l
+          )
+        (* | Memory_address_reloc (offset, index) ->
           (* print_endline "MEMORY ADDR RELOC!"; *)
           u8 1;
           vu32 (Int32.sub offset !code_pos);
-          vu32 index
+          vu32 index *)
           (*
             2 and 5 are data related
           *)
@@ -607,7 +643,7 @@ let encode m =
             3 and 4 are code related
           *)
 
-        | Global_reloc (offset, index) ->
+        | R_WEBASSEMBLY_GLOBAL_INDEX_LEB (offset, index) ->
           u8 7;
           vu32 (Int32.sub offset !code_pos);
           vu32 index
@@ -623,9 +659,9 @@ let encode m =
     let symbol sym =
       (match sym.details with
       | Import _
-      | Function _ -> u8 0
-      | Data _ ->  u8 1
-      | Global _ -> u8 2
+      | Function _ -> vu32 0l
+      | Data _ ->  vu32 1l
+      | Global _ -> vu32 2l
       );
       vu32 sym.flags;
       (match sym.details with
@@ -637,11 +673,6 @@ let encode m =
         vu32 i;
       | Data d ->
         string d.name;
-        print_endline ("Data: " ^ d.name);
-        print_endline "-------";
-        print_endline ("Index:" ^ Int32.to_string d.index);
-        print_endline ("Offset:" ^ Int32.to_string d.offset);
-        print_endline ("Size:" ^ Int32.to_string d.size);
         vu32 d.index;
         vu32 d.offset;
         vu32 d.size
@@ -665,7 +696,7 @@ let encode m =
       let p = pos s in
       vu32 0l;
       patch_gap32 g (pos s - p); *)
-
+      vu32 1l;
       u8 5;
       let g = gap32 () in
       let p = pos s in
@@ -674,7 +705,6 @@ let encode m =
       List.iter (fun f ->
         match f.details with
         | Data d -> (
-          print_endline ("A SEGMENT HERE:" ^ d.name);
           string d.name;
           vu32 4l;
           vu32 0l;
@@ -682,7 +712,6 @@ let encode m =
         | _ -> ()
       ) data;
       patch_gap32 g (pos s - p);
-      print_endline "\nlet symbol_table\n========\n";
       u8 8; (* WASM_SYMBOL_TABLE *)
       let g = gap32 () in
       let p = pos s in

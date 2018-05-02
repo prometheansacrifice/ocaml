@@ -172,19 +172,14 @@ let remove_Wl cclibs =
     else cclib)
 
 let call_linker mode output_name files extra =
+  print_endline "call_linker!";
   let cmd =
-    if mode = Partial then
+    if mode = Partial then      
       let l_prefix =
         match Config.ccomp_type with
         | "msvc" -> "/libpath:"
         | _ -> "-L"
       in
-      Printf.printf "A1: %s%s %s %s %s"
-        Config.native_pack_linker
-        (Filename.quote output_name)
-        (quote_prefixed l_prefix !Config.load_path)
-        (quote_files (remove_Wl files))
-        extra;
       Printf.sprintf "%s%s %s %s %s"
         Config.native_pack_linker
         (Filename.quote output_name)
@@ -192,35 +187,33 @@ let call_linker mode output_name files extra =
         (quote_files (remove_Wl files))
         extra
     else
-      (Printf.printf "A2: %s -o %s %s %s %s %s %s %s"
-        (match !Clflags.c_compiler, mode with
-        | Some cc, _ -> cc
-        | None, Exe -> Config.mkexe
-        | None, Dll -> Config.mkdll
-        | None, MainDll -> Config.mkmaindll
-        | None, Partial -> assert false
-        )
-        (Filename.quote output_name)
-        (if !Clflags.gprofile then Config.cc_profile else "")
-        ""  (*(Clflags.std_include_flag "-I")*)
-        (quote_prefixed "-L" !Config.load_path)
-        (String.concat " " (List.rev !Clflags.all_ccopts))
-        (quote_files files)
-        extra;
-      Printf.sprintf "%s -o %s %s %s %s %s %s %s"
-        (match !Clflags.c_compiler, mode with
-        | Some cc, _ -> cc
-        | None, Exe -> Config.mkexe
-        | None, Dll -> Config.mkdll
-        | None, MainDll -> Config.mkmaindll
-        | None, Partial -> assert false
-        )
-        (Filename.quote output_name)
-        (if !Clflags.gprofile then Config.cc_profile else "")
-        ""  (*(Clflags.std_include_flag "-I")*)
-        (quote_prefixed "-L" !Config.load_path)
-        (String.concat " " (List.rev !Clflags.all_ccopts))
-        (quote_files files)
-        extra)
+      (
+        if Config.wasm32 then 
+          Printf.sprintf "%s -o %s %s %s %s %s %s %s"
+            "../llvmwasm/llvm-build/bin/lld -flavor wasm --verbose --allow-undefined"
+            (Filename.quote output_name)
+            (if !Clflags.gprofile then Config.cc_profile else "")
+            ""  (*(Clflags.std_include_flag "-I")*)
+            (quote_prefixed "-L" !Config.load_path)
+            (String.concat " " (List.rev !Clflags.all_ccopts))
+            (quote_files files)
+            extra                
+        else
+          Printf.sprintf "%s -o %s %s %s %s %s %s %s"
+            (match !Clflags.c_compiler, mode with
+            | Some cc, _ -> cc
+            | None, Exe -> Config.mkexe
+            | None, Dll -> Config.mkdll
+            | None, MainDll -> Config.mkmaindll
+            | None, Partial -> assert false
+            )
+            (Filename.quote output_name)
+            (if !Clflags.gprofile then Config.cc_profile else "")
+            ""  (*(Clflags.std_include_flag "-I")*)
+            (quote_prefixed "-L" !Config.load_path)
+            (String.concat " " (List.rev !Clflags.all_ccopts))
+            (quote_files files)
+            extra                
+      )
   in
   command cmd = 0

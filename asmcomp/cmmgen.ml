@@ -3445,6 +3445,12 @@ let entry_point namelist =
          Cop(Caddi, [Cop(Cload (Word_int, Mutable),
                        [Cconst_symbol "caml_globals_inited"], dbg);
                      Cconst_int 1], dbg)], dbg) in
+  let result = 
+    if Config.wasm32 then
+      (Ctuple [])
+    else 
+      (Cconst_int 1)
+  in
   let body =
     List.fold_right
       (fun name next ->
@@ -3452,8 +3458,15 @@ let entry_point namelist =
         Csequence(Cop(Capply typ_void,
                          [Cconst_symbol entry_sym], dbg),
                   Csequence(incr_global_inited, next)))
-      namelist (Cconst_int 1) in
-  Cfunction {fun_name = "caml_program";
+      namelist result in
+      
+  let fun_name = 
+    if Config.wasm32 then 
+      "_start"
+    else 
+      "caml_program"
+  in
+  Cfunction {fun_name = fun_name;
              fun_args = [];
              fun_body = body;
              fun_codegen_options = [Reduce_code_size];

@@ -67,6 +67,7 @@ max_testsuite_dir_retries=0
 with_cplugins=false
 with_fpic=false
 flat_float_array=true
+wasm32=false
 
 # we distinguish '' (not set) from 'true' (explicitly set by the user)
 with_instrumented_runtime=''
@@ -141,8 +142,10 @@ while : ; do
         disable_libunwind=true;;
     -host*|--host*)
         host_type=$2; shift;;
+    -target-wasm32)
+        wasm32=true;;
     -target*|--target*)
-        target_type=$2; shift;;
+        target_type=$2; shift;;    
     -cc*)
         ccoption="$2"; shift;;
     -as)
@@ -344,20 +347,20 @@ esac
 config PROGRAMS_MAN_SECTION "$programs_man_section"
 config LIBRARIES_MAN_SECTION "$libraries_man_section"
 
-# Determine the system type
+config WASM32 false
+if $wasm32; then
+  echo "#define WASM32" >> m.h
+  config WASM32 true
+fi
 
-if test "$EMSCRIPTEN"; then
-  host_type="wasm32"
-  host="EMSCRIPTEN"
-else
-  if test "$host_type" = "unknown"; then
-    if host_type=`sh ../gnu/config.guess`; then :; else
-      err "Cannot guess host type. You must specify one with the -host option."
-    fi
+# Determine the system type
+if test "$host_type" = "unknown"; then
+  if host_type=`sh ../gnu/config.guess`; then :; else
+    err "Cannot guess host type. You must specify one with the -host option."
   fi
-  if host=`sh ../gnu/config.sub $host_type`; then :; else
-    err "Please specify the correct host type with the -host option"
-  fi
+fi
+if host=`sh ../gnu/config.sub $host_type`; then :; else
+  err "Please specify the correct host type with the -host option"
 fi
 inf "Configuring for host $host ..."
 
@@ -580,12 +583,6 @@ case "$cc,$target" in
     echo "#ifndef __PIC__" >> m.h
     echo "#  define ARCH_CODE32" >> m.h
     echo "#endif" >> m.h;;
-  *,EMSCRIPTEN)
-    exe=".js"
-    common_cflags="-s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s NODERAWFS=1 $common_cflags";
-    echo "#define EMSCRIPTEN" >> m.h
-    # "emcc --js-library stdlib/helper.js" 
-  ;;
 esac
 
 # Configure compiler options to use in further tests.
@@ -1012,7 +1009,6 @@ case "$target" in
   x86_64-*-mingw*)              arch=amd64; system=mingw;;
   aarch64-*-linux*)             arch=arm64; system=linux;;
   x86_64-*-cygwin*)             arch=amd64; system=cygwin;;
-  EMSCRIPTEN)                   arch=wasm32; system=emscripten
 esac
 
 # Some platforms exist both in 32-bit and 64-bit variants, not distinguished
@@ -1071,8 +1067,6 @@ case "$arch,$system" in
                   aspp="${TOOLPREF}cc -c";;
   *,freebsd)      as="${TOOLPREF}as"
                   aspp="${TOOLPREF}cc -c";;
-  wasm32,*)       as='llvm-as'
-                  aspp='emcc -c';;
   amd64,*|arm,*|arm64,*|i386,*|power,bsd*|power,netbsd)
                   as="${TOOLPREF}as"
                   case "$ccfamily" in
@@ -1109,23 +1103,18 @@ case "$arch,$system" in
 esac
 
 # Where is ranlib?
-if test $EMSCRIPTEN; then
+
+if sh ./searchpath ${TOOLPREF}ranlib; then
   inf "ranlib found"
-  config RANLIB "emranlib"
-  config RANLIBCMD "emranlib"
-  config ARCMD "emar"
+  config RANLIB "${TOOLPREF}ranlib"
+  config RANLIBCMD "${TOOLPREF}ranlib"
 else
-  if sh ./searchpath ${TOOLPREF}ranlib; then
-    inf "ranlib found"
-    config RANLIB "${TOOLPREF}ranlib"
-    config RANLIBCMD "${TOOLPREF}ranlib"
-  else
-    inf "ranlib not used"
-    config RANLIB "${TOOLPREF}ar rs"
-    config RANLIBCMD ""
-  fi
-  config ARCMD "${TOOLPREF}ar"
+  inf "ranlib not used"
+  config RANLIB "${TOOLPREF}ar rs"
+  config RANLIBCMD ""
 fi
+config ARCMD "${TOOLPREF}ar"
+
 
 
 
@@ -1169,24 +1158,19 @@ common_cppflags="$common_cppflags -D_FILE_OFFSET_BITS=64"
 
 # Check the semantics of signal handlers
 
-if test $EMSCRIPTEN; then
+if sh ./hasgot sigaction sigprocmask; then
   inf "POSIX signal handling found."
   echo "#define POSIX_SIGNALS" >> s.h
 else
-  if sh ./hasgot sigaction sigprocmask; then
-    inf "POSIX signal handling found."
-    echo "#define POSIX_SIGNALS" >> s.h
+  if sh ./runtest signals.c; then
+    inf "Signals have the BSD semantics."
+    echo "#define BSD_SIGNALS" >> s.h
   else
-    if sh ./runtest signals.c; then
-      inf "Signals have the BSD semantics."
-      echo "#define BSD_SIGNALS" >> s.h
-    else
-      inf "Signals have the System V semantics."
-    fi
-    if sh ./hasgot sigsetmask; then
-      inf "sigsetmask() found"
-      echo "#define HAS_SIGSETMASK" >> s.h
-    fi
+    inf "Signals have the System V semantics."
+  fi
+  if sh ./hasgot sigsetmask; then
+    inf "sigsetmask() found"
+    echo "#define HAS_SIGSETMASK" >> s.h
   fi
 fi
 
@@ -1355,10 +1339,6 @@ fi
 
 if sh ./hasgot getcwd; then
   inf "getcwd() found."
-  echo "#define HAS_GETCWD" >> s.h
-fi
-
-if test "$EMSCRIPTEN"; then
   echo "#define HAS_GETCWD" >> s.h
 fi
 
@@ -1867,10 +1847,6 @@ fi
 echo "X11_INCLUDES=$x11_include" >> Makefile
 echo "X11_LINK=$x11_link" >> Makefile
 
-# if test "$EMSCRIPTEN"; then
-#   otherlibraries=""
-# fi
-
 # Look for BFD library
 
 if $shared_libraries_supported && ./hasgot -DPACKAGE=ocaml -i bfd.h ; then
@@ -2164,6 +2140,7 @@ config WITH_CPLUGINS "$with_cplugins"
 config WITH_FPIC "$with_fpic"
 config TARGET "$target"
 config HOST "$host"
+
 if [ "$ostype" = Cygwin ]; then
   config DIFF "diff -q --strip-trailing-cr"
 fi
