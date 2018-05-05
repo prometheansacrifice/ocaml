@@ -194,6 +194,8 @@ type data_part_detail =
 | Int16 of int
 | Int8 of int
 | Float32 of F32.t
+| MemoryAddress of int32 * string
+| FunctionLoc of int32
 
 type data_part = {
   name: string;

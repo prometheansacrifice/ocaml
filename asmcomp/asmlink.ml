@@ -246,7 +246,6 @@ let make_startup_file ppf units_list =
   Emit.end_assembly ()
 
 let make_shared_startup_file ppf units =
-  print_endline "make_shared_startup_file";
   let compile_phrase p = Asmgen.compile_phrase ppf p in
   Location.input_name := "caml_startup";
   Compilenv.reset "_shared_startup";
@@ -263,10 +262,9 @@ let make_shared_startup_file ppf units =
 
 let call_linker_shared file_list output_name =
   if not (Ccomp.call_linker Ccomp.Dll output_name file_list "")
-  then (print_endline "linker feedback 1"; raise(Error Linking_error))
+  then raise(Error Linking_error)
 
 let link_shared ppf objfiles output_name =
-  print_endline "link_shared";
   Profile.record_call output_name (fun () ->
     let units_tolink = List.fold_right scan_file objfiles [] in
     List.iter
@@ -315,11 +313,9 @@ let call_linker file_list startup_file output_name =
     if main_dll then Ccomp.MainDll
     else if !Clflags.output_c_object then Ccomp.Partial
     else Ccomp.Exe
-  in
-  (* print_endline "before the linker thingy..."; *)
-  (* let files = List.filter (fun f -> f <> "libasmrun.wasm") files in *)
+  in  
   if not (Ccomp.call_linker mode output_name files c_lib)
-  then (print_endline "\nlinker feedback 2"; raise(Error Linking_error))
+  then raise(Error Linking_error)
 
 (* Main entry point *)
 
@@ -340,7 +336,7 @@ let link ppf objfiles output_name =
     let objfiles =
       if !Clflags.nopervasives then objfiles
       else if !Clflags.output_c_object then stdlib :: objfiles
-      else stdlib :: (objfiles @ [stdexit]) in
+      else stdlib :: (objfiles @ if Config.wasm32 then [] else [stdexit]) in
     let units_tolink = List.fold_right scan_file objfiles [] in
     Array.iter remove_required Runtimedef.builtin_exceptions;
     begin match extract_missing_globals() with
@@ -362,8 +358,7 @@ let link ppf objfiles output_name =
       startup !Clflags.keep_startup_file startup_obj
       (fun () -> make_startup_file ppf units_tolink);
     Misc.try_finally
-      (fun () ->
-        print_endline "link it all";
+      (fun () ->        
         call_linker (List.map object_file_name objfiles) startup_obj output_name)
       (* ignore for testing:  (fun () -> remove_file startup_obj) *)
       (fun () -> ())

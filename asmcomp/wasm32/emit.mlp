@@ -246,9 +246,7 @@ let turn_missing_functions_to_imports () = (
   let resolve_call_index (cal:Ast.call) = (
     let w = !wasm_module in
     let res = ref (-1) in
-    List.iteri (fun index (f:Ast.func) ->
-      (* print_endline f.name;
-      print_endline cal.name; *)
+    List.iteri (fun index (f:Ast.func) ->      
       if (f.name = cal.name) then
         res := (List.length w.imports) + index
     ) w.funcs;
@@ -263,8 +261,7 @@ let turn_missing_functions_to_imports () = (
     );
     !res
   )
-  in
-
+  in  
   let rec handle_instructions result = function
     (* | Call ({name; index} as instr) :: rest when (Int32.to_int index) < (Int32.to_int !highest_value) ->
       handle_instructions (result @ [Const (I32 (Int32.of_int (resolve_call_index instr))); CallIndirect !type_]) rest *)
@@ -291,9 +288,42 @@ let turn_missing_functions_to_imports () = (
   };
 )
 
+let global_offset = ref 0
+
+let add_missing_memory_addresses () = (
+  let w = !wasm_module in
+  List.iter (fun (s:data_part segment) -> 
+    List.iter (fun d -> 
+      match d with 
+      | MemoryAddress (_, symbol) -> (
+          let has_symbol = List.find_opt (fun (x:data_part segment) ->
+            x.init.name = symbol
+          ) w.data 
+          in 
+          match has_symbol with 
+          | Some _ -> ()
+          | _ -> (           
+             data_symbols := !data_symbols @ [{
+              flags = 16l;
+              details = Data ({
+                  name = symbol;
+                  index = (-1l);
+                  offset = 0l;
+                  size = 0l
+              })
+            }];
+            data_index := !data_index + 1;           
+          )
+        )
+      | _ -> ()
+    ) s.init.detail    
+  ) w.data
+)
+  
+
 let end_assembly () = (
-  print_endline "turn_missing_functions_to_imports";
   turn_missing_functions_to_imports ();
+  add_missing_memory_addresses ();
   create_symbol_table ();
   Encode.encode !wasm_module;  
   wasm_module := {
@@ -455,7 +485,6 @@ let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (s, mt, b, l), _ -> (
-      (* print_endline ("a12345:" ^ s); *)
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       try 
@@ -491,27 +520,39 @@ let rec to_operations context (expression_list:expression list) operation =
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
       let position = ref 0 in
+      
+
       let calls = List.fold_left (fun calls f ->         
         let result = calls @
         ([GetLocal local_;
         Const { literal = I32 (I32.of_int_s !position); name = None };
         Binary (I32 I32Op.Add)]
         @
-        (emit_expr context f)
+        (match f with 
+        | Cconst_symbol symbol -> (
+          try 
+          let res = data2 context symbol in
+          (* current_return_type := [I32Type]; *)
+          [Const {literal = I32 res; name = Some symbol}]
+        with
+        | _ -> 
+          let res = bind_data context symbol (-1l) in
+          (* current_return_type := [I32Type]; *)
+          [Const {literal = I32 res; name = Some symbol}]
+        )
+        | _ as e -> emit_expr context e)
         @
         match !current_return_type with 
-        | [I32Type] -> print_endline "store i32"; [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}]
-        | [F32Type] -> print_endline "store f32"; [Store {ty = Types.F32Type; align = 0; offset = 0l; sz = None}]
-        | _ -> print_endline "HACK..."; [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
+        | [I32Type] -> [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}]
+        | [F32Type] -> [Store {ty = Types.F32Type; align = 0; offset = 0l; sz = None}]
+        | _ -> print_endline "Not a proper solution..."; [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
         in
         position := !position + size_expr f;
         result
       ) [] expression_list
-      in
-      print_endline ("No of expressions:" ^ string_of_int (List.length expression_list));
-      print_endline ("No of calls:" ^ string_of_int (List.length calls));
+      in      
       let result = [Const { literal = I32 (Nativeint.to_int32 word_size); name = None };
-       Call {index = (func context "allocate_memory"); name = "allocate_memory" };
+       Call {index = (func context "caml_alloc"); name = "caml_alloc" };
        SetLocal local_
       ]
       @
@@ -545,20 +586,16 @@ let rec to_operations context (expression_list:expression list) operation =
     current_return_type := [];
     expression_list @ instr
   | Cadda, [fst; snd] -> (* derived heap pointer *)
-    print_endline "ADD A";
     let result = (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Add)]
     in
-    print_endline "yes...";
     result
   | Caddv, [fst; snd] -> (* pointer addition that produces a [Val] (well-formed Caml value) *)
-    print_endline "ADD V";
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Add)]
   | Caddi, [fst; snd] ->
-    print_endline "ADD I";
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (I32 I32Op.Add)]
@@ -759,21 +796,25 @@ and emit_expr (context:context) (expression:expression) =
     [Const {literal = F32 (F32.of_float s); name = None}]
   | Cconst_symbol symbol ->
     (
-      print_endline ("Symbol: " ^ symbol);
+      print_endline ("Symbol:" ^ symbol);
     try
       let (res, t) = local context symbol in
       current_return_type := [t];
+      print_endline "Attempt 1";
       [Call {index = res; name = symbol}]
     with
     | _ -> try
       current_return_type := [I32Type];
+      print_endline "Attempt 2";
       [Call {index = (global context symbol); name = symbol}]
     with
     | _ -> try (
+      print_endline "Attempt 3";
       [Call {index = (func context symbol); name = symbol}]
     )
     with
     | _ -> try
+      print_endline "The fourth one...";
       let res = data2 context symbol in
       current_return_type := [I32Type];
       [Const {literal = I32 res; name = Some symbol}]
@@ -785,6 +826,7 @@ and emit_expr (context:context) (expression:expression) =
     )
  (* | Zonst (I32 (Nativeint.to_int32 i))] *)
   | Cblockheader (i, _) ->
+    print_endline ("Should write blockheader" ^ Nativeint.to_string i);
     current_return_type := [I32Type];
     [Const { literal = I32 (I32.of_int_s (Nativeint.to_int i)); name = None }]
   | Cvar ident ->
@@ -799,7 +841,6 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Clet (ident, arg, fn_body) -> (
     let binding_name = ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp in
-    print_endline ("Bind local name:" ^ binding_name);
     let let_id = bind_local context binding_name I32Type in
     let result = emit_expr context arg in
     current_return_type := [];
@@ -872,7 +913,6 @@ and emit_expr (context:context) (expression:expression) =
     ignore(Stack.pop block_stack);
     i @ [If (!current_return_type, t, e)]
   | Cswitch  (sw, ia, ea, _) -> (
-    print_endline (string_of_int (Array.length ia) ^ "=" ^ string_of_int (Array.length ea));
     let rec create_block ints remaining =
       match ints, remaining with
       | i :: re, expr :: rest -> (
@@ -994,7 +1034,7 @@ and emit_expr (context:context) (expression:expression) =
       let alloc_memory_pointer = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
       let store_instructions = ref
       [Const {literal = I32 (I32.of_int_s !memory_alloc_size); name = None };
-       Call {index = (func context "allocate_memory"); name = "allocate_memory"};
+       Call {index = (func context "caml_alloc"); name = "caml_alloc"};
        SetLocal alloc_memory_pointer
       ]
       in
@@ -1043,18 +1083,17 @@ and emit_expr (context:context) (expression:expression) =
       GetLocal alloc_memory_pointer;
       Const {literal = I32 body_fn_id; name = None};
       Const {literal = I32 handler_fn_id; name = None};
-      Call {index = (func context "allocate_memory"); name = "allocate_memory"}] @
+      Call {index = (func context "caml_alloc"); name = "caml_alloc"}] @
       !get_blocks @
       [ GetLocal alloc_memory_pointer;
         Load {ty = I32Type; align = 0; offset = 0l; sz = None}; (* TODO: also support float return value... *)
       ]
     )
 
-let global_offset = ref 0
+
 
 
 let begin_assembly () = (
-  print_endline "begin assembly";
   let context = !context in
   let globals = [{
     name = "global_offset";
@@ -1145,8 +1184,8 @@ let begin_assembly () = (
       idesc = FuncImport type__ftype
     };
     {
-      module_name = name "linking";
-      item_name = name "allocate_memory";
+      module_name = name "libasmrun";
+      item_name = name "caml_alloc";
       idesc = FuncImport type__ftype
     };
     {
@@ -1166,7 +1205,7 @@ let begin_assembly () = (
   ignore(bind_func context "jsRaise_i32_i32");
   ignore(bind_func context "jsRaise_i32_unit");
   ignore(bind_func context "caml_fresh_oo_id");
-  ignore(bind_func context "allocate_memory");
+  ignore(bind_func context "caml_alloc");
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
   let exports = [
@@ -1227,8 +1266,7 @@ let begin_assembly () = (
 ) *)
 
 let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (    
-    (* let fun_name = if fun_name = "caml_program" then "_start" else fun_name in *)
-    print_endline ("FUNCTION " ^ fun_name);
+    print_endline ("Function: " ^ fun_name);
     let context = !context in
     let context = enter_func context in
     let args = ref [] in
@@ -1266,12 +1304,13 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
 
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
-      match fun_body with      
+      match fun_body with            
+      | Csequence (expr, Cconst_int 1) -> expr
       | Csequence (expr1, Csequence (a, b)) -> Csequence (expr1, remove_last_unit (Csequence (a, b)))
-      | _ -> fun_body
+      | _ as e -> e
     in
     let fun_body = remove_last_unit fun_body in
-    let body = [] in
+    (* let body = [] in *)
     (* let body = (match locals with
     | Some locals ->
       let memory_block_position = ref 4 (* first block is the return value when present *) in
@@ -1308,7 +1347,9 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       ) [] locals;
     | _ -> [])
     in *)
-    let fun_body = emit_expr context fun_body in
+    let fun_body = emit_expr context fun_body in    
+    
+
     (* let fun_body = (if List.length !current_return_type > 0 then
     
     (
@@ -1336,7 +1377,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       fun_body
     ) 
     in *)
-    let body = body @ fun_body in
+    let body = fun_body in
     let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
     let locals = ref []
@@ -1412,20 +1453,24 @@ and data dl = (
         List.iter (function
         | Cglobal_symbol s -> ()
         | Csymbol_address symbol -> (
-            let symbol_id = try
-            (func context symbol)
+            
+            let add = try
+              [FunctionLoc (func context symbol)]
+            (* R_WEBASSEMBLY_TABLE_INDEX_I32 *)
             with
             | _ -> try
-            data2 context symbol
+              [MemoryAddress (data2 context symbol, symbol)]
+            (* R_WEBASSEMBLY_MEMORY_ADDR_I32 *)
             with
             | _ ->(
-            if is_closure then (
-                bind_func context symbol)
+            if is_closure then ( 
+              [FunctionLoc (bind_func context symbol)]
+            )
             else
-                bind_data context symbol (-1l) (* no idea where we will find this data yet *)
+              [MemoryAddress (bind_data context symbol (-1l), symbol)] (* no idea where we will find this data yet *)                
             )
             in
-            init := !init @ [Int32 symbol_id];
+            init := !init @ add;
             offset := !offset + 4;
             ()
             )
@@ -1437,8 +1482,8 @@ and data dl = (
                 let newFuncs = List.map (fun (func:Ast.func) -> (
                 let rec process_instr a = List.map (fun f ->
                     match f with
-                    | Const {name; _} when name = Some symbol -> (
-                    Const {name; literal = I32 (I32.of_int_u (start_offset + !offset))}
+                    | Const {name; _ } when name = Some symbol -> (
+                      Const {name; literal = I32 (I32.of_int_u (start_offset + !offset))}
                     )
                     | Block (s, i) -> Block (s, process_instr i)
                     | Loop (s, i) -> Loop (s, process_instr i)
