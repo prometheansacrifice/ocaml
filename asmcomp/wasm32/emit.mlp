@@ -141,7 +141,7 @@ let create_symbol_table () = (
       in
       {
         flags = flags;
-        details = Import (Int32.of_int i)
+        details = Import {index = Int32.of_int i; name = (Ast.string_of_name import.item_name)}
       }) w.imports)
     @
     (List.mapi (fun i (f:Ast.func) -> {
@@ -152,7 +152,9 @@ let create_symbol_table () = (
       })
     }) w.funcs)
   in
-  let global_symbols = (List.mapi (fun i (g:Ast.global) -> {
+  let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
+    print_endline ("Add a global: " ^ g.name);
+    {
     flags = 2l;
     details = Global ({
       index = Int32.of_int i;
@@ -295,7 +297,7 @@ let add_missing_memory_addresses () = (
   List.iter (fun (s:data_part segment) -> 
     List.iter (fun d -> 
       match d with 
-      | MemoryAddress (_, symbol) -> (
+      | MemoryAddress symbol -> (
           let has_symbol = List.find_opt (fun (x:data_part segment) ->
             x.init.name = symbol
           ) w.data 
@@ -309,7 +311,8 @@ let add_missing_memory_addresses () = (
                   name = symbol;
                   index = (-1l);
                   offset = 0l;
-                  size = 0l
+                  size = 0l;
+                  offset2 = 0l
               })
             }];
             data_index := !data_index + 1;           
@@ -533,12 +536,12 @@ let rec to_operations context (expression_list:expression list) operation =
           try 
           let res = data2 context symbol in
           (* current_return_type := [I32Type]; *)
-          [Const {literal = I32 res; name = Some symbol}]
+          [Const {literal = I32 res; name = Some (symbol, Data)}]
         with
         | _ -> 
           let res = bind_data context symbol (-1l) in
           (* current_return_type := [I32Type]; *)
-          [Const {literal = I32 res; name = Some symbol}]
+          [Const {literal = I32 res; name = Some (symbol, Data)}]
         )
         | _ as e -> emit_expr context e)
         @
@@ -772,10 +775,10 @@ let rec to_operations context (expression_list:expression list) operation =
     let else_ = snd @ [Const { literal = I32 0l; name = None}] @ [Compare (I32 I32Op.LtS)] in
 
     if_ @ [If ([], [
-      Const { literal = I32 (-1l); name = Some "caml_exn_Invalid_argument" };
+      Const { literal = I32 (-1l); name = Some ("caml_exn_Invalid_argument", Data) };
       Call { index = (func context "jsRaise_i32_unit"); name = "jsRaise_i32_unit"}
     ],else_ @ [If ([], [
-        Const { literal = I32 (-1l); name = Some "caml_exn_Invalid_argument" };
+        Const { literal = I32 (-1l); name = Some ("caml_exn_Invalid_argument", Data) };
         Call {index = (func context "jsRaise_i32_unit"); name = "jsRaise_i32_unit"}
       ], [])])]
     )
@@ -800,12 +803,10 @@ and emit_expr (context:context) (expression:expression) =
     try
       let (res, t) = local context symbol in
       current_return_type := [t];
-      print_endline "Attempt 1";
       [Call {index = res; name = symbol}]
     with
     | _ -> try
       current_return_type := [I32Type];
-      print_endline "Attempt 2";
       [Call {index = (global context symbol); name = symbol}]
     with
     | _ -> try (
@@ -817,12 +818,12 @@ and emit_expr (context:context) (expression:expression) =
       print_endline "The fourth one...";
       let res = data2 context symbol in
       current_return_type := [I32Type];
-      [Const {literal = I32 res; name = Some symbol}]
+      [Const {literal = I32 res; name = Some (symbol, Data)}]
     with
     | _ -> 
       let res = bind_data context symbol (-1l) in
       current_return_type := [I32Type];
-      [Const {literal = I32 res; name = Some symbol}]
+      [Const {literal = I32 res; name = Some (symbol, Data)}]
     )
  (* | Zonst (I32 (Nativeint.to_int32 i))] *)
   | Cblockheader (i, _) ->
@@ -890,7 +891,7 @@ and emit_expr (context:context) (expression:expression) =
     load_action @
     [CallIndirect ftype]
     )
-  | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (
+  | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
     expression_list @
     try (
@@ -1137,6 +1138,7 @@ let begin_assembly () = (
       index = 0l;
       offset = 0l;
       size =  1l;
+      offset2 = 0l;
     })
   };
   {
@@ -1146,11 +1148,12 @@ let begin_assembly () = (
       index = 1l;
       offset = 0l;
       size =  4l;
+      offset2 = 1l;
     })
   };
   ];
 
-  global_offset := !global_offset + 6;
+  global_offset := !global_offset + 5;
 
   let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
   let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
@@ -1293,7 +1296,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     let newFuncs = List.map (fun func -> (
       let new_func_body = List.map (fun f ->
         match f with
-        | Const {name; _} when name = Some fun_name -> Const {literal = I32 func_id; name}
+        | Const {name = Some (name_, opt); _} when name_ = fun_name -> Const {literal = I32 func_id; name = Some (name_, opt)}
         | _ -> f
       ) func.body
       in
@@ -1459,7 +1462,8 @@ and data dl = (
             (* R_WEBASSEMBLY_TABLE_INDEX_I32 *)
             with
             | _ -> try
-              [MemoryAddress (data2 context symbol, symbol)]
+              ignore(data2 context symbol);
+              [MemoryAddress symbol]
             (* R_WEBASSEMBLY_MEMORY_ADDR_I32 *)
             with
             | _ ->(
@@ -1467,7 +1471,8 @@ and data dl = (
               [FunctionLoc (bind_func context symbol)]
             )
             else
-              [MemoryAddress (bind_data context symbol (-1l), symbol)] (* no idea where we will find this data yet *)                
+              (ignore (bind_data context symbol (-1l));
+              [MemoryAddress symbol])
             )
             in
             init := !init @ add;
@@ -1482,8 +1487,8 @@ and data dl = (
                 let newFuncs = List.map (fun (func:Ast.func) -> (
                 let rec process_instr a = List.map (fun f ->
                     match f with
-                    | Const {name; _ } when name = Some symbol -> (
-                      Const {name; literal = I32 (I32.of_int_u (start_offset + !offset))}
+                    | Const {name = Some (name_, kind); _ } when name_ = symbol -> (
+                      Const {name = Some (name_, kind); literal = I32 (I32.of_int_u (start_offset + !offset))}
                     )
                     | Block (s, i) -> Block (s, process_instr i)
                     | Loop (s, i) -> Loop (s, process_instr i)
@@ -1539,7 +1544,7 @@ and data dl = (
         | Calign i -> () (* seems not to be produced anyway in the OCaml codebase *)
         ) dl;
 
-        (* print_endline (!symbol_name ^ " = " ^ string_of_int !offset); *)
+        (* print_endline ("Offset for " ^ !symbol_name ^ " = " ^ string_of_int start_offset); *)
 
         data_symbols := !data_symbols @ [{
         flags = 0l;
@@ -1547,14 +1552,17 @@ and data dl = (
             name = !symbol_name;
             index = Int32.of_int !data_index;
             offset = 0l;
-            size =  Int32.of_int !offset
+            size =  Int32.of_int !offset;
+            offset2 = Int32.of_int start_offset
         })
         }];
         data_index := !data_index + 1;
 
         let w = !wasm_module in
 
+        print_endline ("Previous = " ^ string_of_int start_offset);
         global_offset := !global_offset + !offset;
+        print_endline ("New global offset = " ^ string_of_int !global_offset);
 
         (* to make sure that this is always seen as data and not an integer *)
         (if !global_offset land 1 <> 0 then global_offset := !global_offset + 1);

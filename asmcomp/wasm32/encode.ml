@@ -39,16 +39,17 @@ let to_string s =
 (* Encoding *)
 
 type code_relocation =
-  | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * Ast.var 
-  | R_WEBASSEMBLY_TABLE_INDEX_SLEB  
-  | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var
-  | R_WEBASSEMBLY_MEMORY_ADDR_SLEB    
+  | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * Ast.var   
+  | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var  
   | R_WEBASSEMBLY_TYPE_INDEX_LEB of int32 * Ast.var
   | R_WEBASSEMBLY_GLOBAL_INDEX_LEB of int32 * Ast.var
+  | R_WEBASSEMBLY_MEMORY_ADDR_SLEB of int32 * string
+  | R_WEBASSEMBLY_TABLE_INDEX_SLEB  of int32 * string
 
 type data_relocation =
   | R_WEBASSEMBLY_TABLE_INDEX_I32 of int32 * Ast.var
   | R_WEBASSEMBLY_MEMORY_ADDR_I32 of int32 * string
+  
 
 let encode_result = ref ""
 
@@ -93,12 +94,21 @@ let encode m =
         u8 (to_int (logand (shift_right_logical i 28) 0x0fL))
       )
     )
-    
 
     let vs7 i = vs64 (Int64.of_int i)
     let vs32 i = vs64 (Int64.of_int32 i)
     let f32 x = u32 (F32.to_bits x)
     let f64 x = u64 (F64.to_bits x)
+
+
+    let vs32_fixed i = (
+      let i = Int64.of_int32 i in
+      let rec foo i p = 
+        let b = Int64.(to_int (logand i 0x7fL)) in
+        if -64L <= i && i < 64L && p = 0 then u8 b
+        else (u8 (b lor 0x80); foo (Int64.shift_right i 7) (p - 1))
+      in foo i 4
+    )
 
     let len i =
       if Int32.to_int (Int32.of_int i) <> i then
@@ -287,8 +297,25 @@ let encode m =
         *)
         op 0x41;
         let p = pos s in
-        temp := Some (p, c);
-        vs32 c
+
+        (* temp := Some (p, c); *)
+        (match name with
+        | Some (symbol, Data) -> (
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
+          List.iteri (fun symbol_index s -> match s.details with
+          | Import {name; index}
+          | Function {name; index} when name = symbol ->
+              vs32_fixed index
+          | Data { name; offset2 } when name = symbol ->
+              vs32_fixed offset2
+           | _ -> ()  
+          ) m.symbols          
+        )
+        | Some (s, Function) -> (
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, s)];
+          vs32_fixed c
+        )
+        | None -> vs32 c)
       | Const { literal = I64 c; _ } -> op 0x42; vs64 c
       | Const { literal = F32 c; _ } -> op 0x43; f32 c
       | Const { literal = F64 c; _ } -> op 0x44; f64 c
@@ -575,56 +602,94 @@ let encode m =
     (* let memory_segment seg =
       segment string seg *)
 
-    let data_part_list (data_part_list:data_part) =
+    let data_part_list symbols (data_part_list:data_part) =
       let data_length = List.fold_left (fun cur add ->
           cur + match add with          
           | String s -> String.length s
           | MemoryAddress _
-          | FunctionLoc _
           | Nativeint _
+          | FunctionLoc _                   
+          | Int32 _ 
           | Float32 _ -> 4
-          | Int32 _ -> 4
-          | Int16 _ -> 2
-          | Int8 _ -> 1
+          | Int16 n -> 2
+          | Int8 n -> 1           
       ) 0 data_part_list.detail in
       len data_length;
       List.iter (fun f ->
         match f with
-        | String bs -> put_string s bs
-        | Float32 f -> f32 f
-        | MemoryAddress (i32, symbol) ->
+        | String bs -> 
+          (* print_endline "write an string here..."; *)
+          put_string s bs
+        | Float32 f -> 
+          (* put_string s (F32.to_string f) *)
+          f32 f
+        | MemoryAddress symbol ->
           let p = pos s in
-          print_endline ("Writing memory address:" ^ Int32.to_string i32 ^ " @ " ^ string_of_int p);
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
-          u32 i32
+          (* put_string s (Int32.to_string i32) *)
+          List.iteri (fun symbol_index s -> match s.details with
+           | Data { name; index; offset2 } when name = symbol ->
+            (* print_endline (symbol ^ " index = " ^ Int32.to_string index); *)
+            (* print_endline (symbol ^ " offset = " ^ Int32.to_string offset); *)
+            if offset2 = (-1l) then
+              u32 0l
+            else
+              u32 offset2
+           | _ -> ()  
+          ) symbols;          
         | FunctionLoc i32 -> 
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, i32)];
+          (* put_string s (Int32.to_string i32) *)
+          u32 i32          
+        | Int32 i32 -> 
+          (* put_string s (Int32.to_string i32) *)
           u32 i32
-        | Int32 i32 -> u32 i32
-        | Nativeint ni -> u32 (Nativeint.to_int32 ni)
-        | Int16 i -> u16 i
-        | Int8 i -> u8 i
+        | Nativeint ni -> 
+          (* put_string s (Nativeint.to_string ni) *)
+
+          u32 (Nativeint.to_int32 ni)
+        | Int16 i -> 
+          (* put_string s (string_of_int i) *)
+          u16 i
+        | Int8 i -> 
+          (* put_string s (string_of_int i) *)
+          u8 i
       ) data_part_list.detail
 
-    let data_segment seg = (* https://github.com/WebAssembly/design/blob/master/BinaryEncoding.md#data-section *)
-      segment data_part_list seg
+    let data_segment symbols seg = (* https://github.com/WebAssembly/design/blob/master/BinaryEncoding.md#data-section *)
+      segment (data_part_list symbols) seg
 
-    let data_section data =
+    let data_section data symbols =
       data_section_index := !section_counter;
       data_pos := Int32.of_int (pos s + 6);
-      section 11 (vec data_segment) data (data <> [])
+      section 11 (vec (data_segment symbols)) data (data <> [])
 
     let reloc_code symbols data =
       vu32 (Int32.of_int !code_section_index);
-      vu32 (Int32.of_int (List.length !code_relocations));
+      vu32 (Int32.of_int (List.length !code_relocations));      
       List.iter (fun r ->
-        match r with
-
+        match r with        
+        | R_WEBASSEMBLY_TABLE_INDEX_SLEB (offset, symbol_)
+        | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> (
+          List.iteri (fun symbol_index s -> match s.details with
+          | Import {name}
+          | Function {name} when name = symbol_ -> 
+            u8 1;            
+            vu32 (Int32.sub offset !code_pos);
+            vu32 (Int32.of_int symbol_index); 
+           | Data { name } when name = symbol_ ->
+              u8 4;
+              vu32 (Int32.sub offset !code_pos);
+              vu32 (Int32.of_int symbol_index); 
+              vs32 0l  
+           | _ -> ()  
+          ) symbols
+        )
         | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, index_) ->
           (let symbol_index = ref (-1) in
           List.iteri (fun i s -> match s.details with
-            | Import index when index = index_ -> symbol_index := i
+            | Import {index; _} when index = index_ -> symbol_index := i
             | Function {index; _} when index = index_ -> symbol_index := i
             | _ -> ()) symbols;
           u8 0;
@@ -651,7 +716,6 @@ let encode m =
           u8 7;
           vu32 (Int32.sub offset !code_pos);
           vu32 index
-        | _ -> ()
       ) !code_relocations
 
     let relocate_code_section symbols data =
@@ -662,11 +726,11 @@ let encode m =
       vu32 (Int32.of_int !data_section_index);
       vu32 (Int32.of_int (List.length !data_relocations));
       List.iter (fun r ->
-        match r with
+        match r with      
         | R_WEBASSEMBLY_TABLE_INDEX_I32 (offset, index_) -> (
             let symbol_index = ref (-1) in
             List.iteri (fun i s -> match s.details with
-            | Import index when index = index_ -> symbol_index := i
+            | Import {index; _} when index = index_ -> symbol_index := i
             | Function {index; _} when index = index_ -> symbol_index := i
             | _ -> ()) symbols;
             u8 2;
@@ -680,9 +744,6 @@ let encode m =
                 symbol_index := i
               )
             | _ -> ()) symbols;
-            
-            print_endline ("reloc:" ^ symbol_ ^ " -> " ^ string_of_int !symbol_index);
-
             u8 5;
             vu32 (Int32.sub offset !data_pos);
             vu32 (Int32.of_int !symbol_index);
@@ -698,16 +759,17 @@ let encode m =
       | Import _
       | Function _ -> vu32 0l
       | Data _ ->  vu32 1l
-      | Global _ -> vu32 2l
+      | Global _ -> print_string "GLOBAL:"; vu32 2l
       );
       vu32 sym.flags;
       (match sym.details with
       | Global f
       | Function f ->
+        print_endline ("- " ^ f.name);
         vu32 f.index;
         string f.name;
       | Import i ->
-        vu32 i;
+        vu32 i.index;
       | Data d ->
         string d.name;
         if d.index <> (-1l) then (
@@ -787,7 +849,7 @@ let encode m =
       start_section m.start;
       elem_section m.elems;
       code_section m.funcs;
-      data_section m.data;
+      data_section m.data m.symbols;
       linking_section m.symbols m.data;
       if List.length !code_relocations > 0 then
         relocate_code_section m.symbols m.funcs;

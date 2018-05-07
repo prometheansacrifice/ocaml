@@ -74,6 +74,10 @@ type var = int32
 type literal = Values.value
 type name = int list
 
+type symbol_kind = 
+  | Function
+  | Data
+
 type call = {
   index: var;
   name: string;
@@ -81,7 +85,7 @@ type call = {
 
 type const_symbol = {
   literal: literal;
-  name: string option;
+  name: (string * symbol_kind) option;
 }
 
 type instr =
@@ -194,7 +198,7 @@ type data_part_detail =
 | Int16 of int
 | Int8 of int
 | Float32 of F32.t
-| MemoryAddress of int32 * string
+| MemoryAddress of string
 | FunctionLoc of int32
 
 type data_part = {
@@ -212,11 +216,12 @@ type sym_info_data = {
   index: var;
   offset: var;
   size: var;
+  offset2: var;
 }
 
 type sym_info_details =
   | Function of sym_info_function
-  | Import of var
+  | Import of sym_info_function
   | Global of sym_info_function
   | Data of sym_info_data
 

@@ -1482,10 +1482,16 @@ wasm32-all:
 	make coldstart	
 	make wasm32
 
+wasm32-test:
+	boot/ocamlrun ./ocamlopt -o test test.ml -I stdlib -dstartup
+
 wasm32:
+	rm -f asmcomp/emit.cmo
+	rm -f asmcomp/encode.cmo
+	rm -f asmcomp/asmgen.cmo
 	make opt-core
 	make libasmrun-wasm
-	boot/ocamlrun ./ocamlopt -o test test.ml -I stdlib -dstartup
+	make wasm32-test
 
 include .depend
 
