@@ -190,7 +190,7 @@ let call_linker mode output_name files extra =
       (
         if Config.wasm32 then 
           Printf.sprintf "%s -o %s %s %s %s %s %s %s"
-            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --verbose --allow-undefined"
+            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --export-table --verbose --allow-undefined"
             (Filename.quote output_name)
             (if !Clflags.gprofile then Config.cc_profile else "")
             ""  (*(Clflags.std_include_flag "-I")*)

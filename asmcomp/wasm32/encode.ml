@@ -185,8 +185,8 @@ let encode m =
 
     let memop {align; offset; _} =             
       vu32 (Int32.of_int align); 
-      let p = pos s in
-      code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_LEB (Int32.of_int p, offset)];
+      (* let p = pos s in
+      code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_LEB (Int32.of_int p, offset)]; *)
       vu32_fixed offset
 
     let var x = vu32 x
@@ -624,13 +624,14 @@ let encode m =
           (* put_string s (F32.to_string f) *)
           f32 f
         | MemoryAddress symbol ->
+          print_endline ("MemoryAddress " ^ symbol);
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           (* put_string s (Int32.to_string i32) *)
           List.iteri (fun symbol_index s -> match s.details with
            | Data { name; index; offset2 } when name = symbol ->
             (* print_endline (symbol ^ " index = " ^ Int32.to_string index); *)
-            (* print_endline (symbol ^ " offset = " ^ Int32.to_string offset); *)
+            (* print_endline (symbol ^ " R_WEBASSEMBLY_MEMORY_ADDR_I32 offset = " ^ Int32.to_string offset2); *)
             if offset2 = (-1l) then
               u32 0l
             else
@@ -638,6 +639,7 @@ let encode m =
            | _ -> ()  
           ) symbols;          
         | FunctionLoc i32 -> 
+          print_endline ("Function at: " ^ Int32.to_string i32);
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, i32)];
           (* put_string s (Int32.to_string i32) *)
@@ -675,10 +677,12 @@ let encode m =
           List.iteri (fun symbol_index s -> match s.details with
           | Import {name}
           | Function {name} when name = symbol_ -> 
+            print_endline ("Function: " ^ name) ;
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
-           | Data { name } when name = symbol_ ->
+           | Data { name; offset2 } when name = symbol_ ->
+            print_endline ("Data: " ^ name) ;
               u8 4;
               vu32 (Int32.sub offset !code_pos);
               vu32 (Int32.of_int symbol_index); 
@@ -741,7 +745,7 @@ let encode m =
             let symbol_index = ref (-1) in
             List.iteri (fun i s -> match s.details with
             | Data { name } when name = symbol_ -> (
-                symbol_index := i
+                symbol_index := i;
               )
             | _ -> ()) symbols;
             u8 5;
@@ -759,13 +763,12 @@ let encode m =
       | Import _
       | Function _ -> vu32 0l
       | Data _ ->  vu32 1l
-      | Global _ -> print_string "GLOBAL:"; vu32 2l
+      | Global _ -> vu32 2l
       );
       vu32 sym.flags;
       (match sym.details with
       | Global f
       | Function f ->
-        print_endline ("- " ^ f.name);
         vu32 f.index;
         string f.name;
       | Import i ->
@@ -816,7 +819,6 @@ let encode m =
       vec symbol data;
       patch_gap32 g (pos s - p);
 
-
       List.iteri(fun i f ->
         match f.details with
         | Function {name = "_start"; _ } ->  (
@@ -827,10 +829,9 @@ let encode m =
           vu32 0l;
           vu32 (Int32.of_int i);
           patch_gap32 g (pos s - p)
-          )
+        )
         | _ -> ()
         ) data
-
 
     let linking_section (data:Ast.sym_info list) data2 =
       custom_section "linking" symbol_table (data, data2) (data <> [])
@@ -855,9 +856,6 @@ let encode m =
         relocate_code_section m.symbols m.funcs;
       if List.length !data_relocations > 0 then
         relocate_data_section m.symbols m.funcs
-
-      (* TODO: relocate_data_section m.data; *)
-
   end
   in E.module_ m; 
   encode_result := to_string s

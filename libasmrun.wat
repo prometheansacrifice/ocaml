@@ -18,5 +18,6 @@
         call $caml_alloc
     )
     (export "caml_alloc" (func $caml_alloc))
+    (export "mempointer_pos" (global $mempointer_pos))
     ;; (global $_memory_pointer (mut i32) (i32.const 2000))
 )
