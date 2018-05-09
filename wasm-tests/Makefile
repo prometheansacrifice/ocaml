@@ -21,8 +21,8 @@ build:
 	# ../ocamlopt -wasm test/loop.ml -o test/loop.wasm
 	# # ../ocamlopt -wasm test/crud.ml -o test/crud.wasm
 	# ../ocamlopt -wasm test/arithmetic.ml -o test/arithmetic.wasm
-	# ../ocamlopt -c -wasm test/file_b.ml -o test/file_b.wasm
-	# ../ocamlopt -I test/ -wasm file_b.cmx test/file_a.ml -o test/file_a.wasm
+	../boot/ocamlrun ../ocamlopt -c test/file_b.ml -I ../stdlib  -o test/file_b.o
+	../boot/ocamlrun ../ocamlopt -I test/ -I ../stdlib file_b.cmx test/file_a.ml -o test/file_a.wasm
 	# run the test
 	npm test
 

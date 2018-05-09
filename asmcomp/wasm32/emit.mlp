@@ -145,7 +145,6 @@ let create_symbol_table () = (
       }) w.imports)
     @
     (List.mapi (fun i (f:Ast.func) ->
-      print_endline ("Function symbol:" ^ f.name ^ " = " ^ string_of_int (List.length w.imports + i));
      {
       flags = 0l;
       details = Function ({
@@ -155,7 +154,6 @@ let create_symbol_table () = (
     }) w.funcs)
   in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
-    print_endline ("Add a global: " ^ g.name);
     {
     flags = 2l;
     details = Global ({
@@ -237,7 +235,7 @@ let turn_missing_functions_to_imports () = (
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [empty_type]};
     imports := !imports @ [{
-      module_name = name "linking";
+      module_name = name "libasmrun";
       item_name = name key;
       idesc = FuncImport empty_ftype
     }];
@@ -535,6 +533,7 @@ let rec to_operations context (expression_list:expression list) operation =
         @
         (match f with 
         | Cconst_symbol symbol -> (
+          print_endline ("Dat symbol:" ^ symbol);
           try 
           let res = data2 context symbol in
           (* current_return_type := [I32Type]; *)
@@ -570,7 +569,6 @@ let rec to_operations context (expression_list:expression list) operation =
       in 
       result
     )
-  (* | Calloc, [Cblockheader _; _] -> ( *)
   | Cstore (memory_chunk, initialization_or_assignment), _ ->
     let align = 0 in
     let offset = 0l in
@@ -846,6 +844,7 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Clet (ident, arg, fn_body) -> (
     let binding_name = ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp in
+    print_endline ("Creating binding: " ^ binding_name);
     let let_id = bind_local context binding_name I32Type in
     let result = emit_expr context arg in
     current_return_type := [];
@@ -896,11 +895,14 @@ and emit_expr (context:context) (expression:expression) =
     [CallIndirect ftype]
     )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
+    print_endline ("Calling function: " ^ hd);
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
     expression_list @
     try (
+      print_endline "calling this one...";
       [Call {index = (func context hd); name = hd}] )
       with | _ ->
+      print_endline "calling second one...";
       [Call {index = (bind_func context hd); name = hd}]
     )
   | Cop (operation, expression_list, _) ->

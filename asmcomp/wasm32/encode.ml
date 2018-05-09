@@ -222,6 +222,7 @@ let encode m =
           op 0x10;
           let p = pos s in
           code_relocations := !code_relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, x.index)];          
+          print_endline ("Going to call:" ^ Int32.to_string x.index);
           reloc_index x.index
       | CallIndirect x ->
         op 0x11;
@@ -300,13 +301,16 @@ let encode m =
 
         (* temp := Some (p, c); *)
         (match name with
-        | Some (symbol, Data) -> (
-          code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
+        | Some (symbol, Data) -> (          
           List.iteri (fun symbol_index s -> match s.details with
           | Import {name; index}
           | Function {name; index} when name = symbol ->
+              print_endline ("Write " ^ name ^ " at index: " ^ Int32.to_string index);
+              code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed index
           | Data { name; offset2 } when name = symbol ->
+              print_endline ("Write " ^ name ^ " at memory: " ^ Int32.to_string offset2);
+              code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed offset2
            | _ -> ()  
           ) m.symbols          
@@ -624,7 +628,6 @@ let encode m =
           (* put_string s (F32.to_string f) *)
           f32 f
         | MemoryAddress symbol ->
-          print_endline ("MemoryAddress " ^ symbol);
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           (* put_string s (Int32.to_string i32) *)
@@ -639,7 +642,6 @@ let encode m =
            | _ -> ()  
           ) symbols;          
         | FunctionLoc i32 -> 
-          print_endline ("Function at: " ^ Int32.to_string i32);
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, i32)];
           (* put_string s (Int32.to_string i32) *)
@@ -682,7 +684,6 @@ let encode m =
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
            | Data { name; offset2 } when name = symbol_ ->
-            print_endline ("Data: " ^ name) ;
               u8 4;
               vu32 (Int32.sub offset !code_pos);
               vu32 (Int32.of_int symbol_index); 
@@ -726,7 +727,6 @@ let encode m =
       custom_section "reloc.CODE" (reloc_code symbols) data (data <> [])
 
     let reloc_data symbols data =
-      print_endline ("Data section: " ^ string_of_int !data_section_index);
       vu32 (Int32.of_int !data_section_index);
       vu32 (Int32.of_int (List.length !data_relocations));
       List.iter (fun r ->

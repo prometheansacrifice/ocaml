@@ -17,7 +17,12 @@
         get_local $amount
         call $caml_alloc
     )
+    (func $camlStdlib__^_1118 (type $t0) (param $amount i32) (result i32)
+        (get_local $amount)
+    )
     (export "caml_alloc" (func $caml_alloc))
     (export "mempointer_pos" (global $mempointer_pos))
+    (export "camlStdlib__^_1118" (func $camlStdlib__^_1118))
+
     ;; (global $_memory_pointer (mut i32) (i32.const 2000))
 )
