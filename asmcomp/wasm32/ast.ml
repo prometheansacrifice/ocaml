@@ -208,15 +208,15 @@ type data_part = {
 
 type sym_info_function = {
   index: var;
-  name: string; (* to length and bytes *)
+  name: string;
 }
 
 type sym_info_data = {
-  name: string; (* to length and bytes *)
+  name: string;
   index: var;
-  offset: var;
+  relocation_offset: var;
   size: var;
-  offset2: var;
+  offset: var;
 }
 
 type sym_info_details =

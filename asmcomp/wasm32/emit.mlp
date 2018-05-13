@@ -310,9 +310,9 @@ let add_missing_memory_addresses () = (
               details = Data ({
                   name = symbol;
                   index = (-1l);
-                  offset = 0l;
+                  relocation_offset = 0l;
                   size = 0l;
-                  offset2 = 0l
+                  offset = 0l
               })
             }];
             data_index := !data_index + 1;           
@@ -1142,9 +1142,9 @@ let begin_assembly () = (
     details = Data ({
       name = "caml_globals_inited";
       index = 0l;
-      offset = 0l;
+      relocation_offset = 0l;
       size =  1l;
-      offset2 = 0l;
+      offset = 0l;
     })
   };
   {
@@ -1152,9 +1152,9 @@ let begin_assembly () = (
     details = Data ({
       name = "caml_backtrace_pos";
       index = 1l;
-      offset = 0l;
+      relocation_offset = 0l;
       size =  4l;
-      offset2 = 1l;
+      offset = 1l;
     })
   };
   ];
@@ -1557,9 +1557,9 @@ and data dl = (
         details = Data ({
             name = !symbol_name;
             index = Int32.of_int !data_index;
-            offset = 0l;
+            relocation_offset = 0l;
             size =  Int32.of_int !offset;
-            offset2 = Int32.of_int start_offset
+            offset = Int32.of_int start_offset
         })
         }];
         data_index := !data_index + 1;

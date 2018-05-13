@@ -305,13 +305,11 @@ let encode m =
           List.iteri (fun symbol_index s -> match s.details with
           | Import {name; index}
           | Function {name; index} when name = symbol ->
-              print_endline ("Write " ^ name ^ " at index: " ^ Int32.to_string index);
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed index
-          | Data { name; offset2 } when name = symbol ->
-              print_endline ("Write " ^ name ^ " at memory: " ^ Int32.to_string offset2);
+          | Data { name; offset } when name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-              vs32_fixed offset2
+              vs32_fixed offset
            | _ -> ()  
           ) m.symbols          
         )
@@ -632,13 +630,13 @@ let encode m =
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           (* put_string s (Int32.to_string i32) *)
           List.iteri (fun symbol_index s -> match s.details with
-           | Data { name; index; offset2 } when name = symbol ->
+           | Data { name; index; offset } when name = symbol ->
             (* print_endline (symbol ^ " index = " ^ Int32.to_string index); *)
-            (* print_endline (symbol ^ " R_WEBASSEMBLY_MEMORY_ADDR_I32 offset = " ^ Int32.to_string offset2); *)
-            if offset2 = (-1l) then
+            (* print_endline (symbol ^ " R_WEBASSEMBLY_MEMORY_ADDR_I32 offset = " ^ Int32.to_string offset); *)
+            if offset = (-1l) then
               u32 0l
             else
-              u32 offset2
+              u32 offset
            | _ -> ()  
           ) symbols;          
         | FunctionLoc i32 -> 
@@ -683,7 +681,7 @@ let encode m =
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
-           | Data { name; offset2 } when name = symbol_ ->
+           | Data { name } when name = symbol_ ->
               u8 4;
               vu32 (Int32.sub offset !code_pos);
               vu32 (Int32.of_int symbol_index); 
@@ -777,7 +775,7 @@ let encode m =
         string d.name;
         if d.index <> (-1l) then (
           vu32 d.index;
-          vu32 d.offset;
+          vu32 d.relocation_offset;
           vu32 d.size
         )
       )
