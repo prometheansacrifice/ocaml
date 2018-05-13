@@ -140,25 +140,27 @@ let create_symbol_table () = (
       )
       in
       {
+        name = (Ast.string_of_name import.item_name);
         flags = flags;
-        details = Import {index = Int32.of_int i; name = (Ast.string_of_name import.item_name)}
+        details = Import {index = Int32.of_int i }
       }) w.imports)
     @
     (List.mapi (fun i (f:Ast.func) ->
      {
+      name = f.name;
       flags = 0l;
       details = Function ({
         index = Int32.of_int (List.length w.imports + i);
-        name = f.name
+        
       })
     }) w.funcs)
   in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
+    name = g.name;
     flags = 2l;
     details = Global ({
-      index = Int32.of_int i;
-      name = g.name
+      index = Int32.of_int i;      
     })
   }) w.globals)
   in
@@ -306,9 +308,9 @@ let add_missing_memory_addresses () = (
           | Some _ -> ()
           | _ -> (           
              data_symbols := !data_symbols @ [{
+              name = symbol;
               flags = 16l;
               details = Data ({
-                  name = symbol;
                   index = (-1l);
                   relocation_offset = 0l;
                   size = 0l;
@@ -1138,9 +1140,9 @@ let begin_assembly () = (
   ignore(bind_data context "caml_backtrace_pos" 1l);
   data_index := 2;
   data_symbols := !data_symbols @ [{
+    name = "caml_globals_inited";
     flags = 1l;
     details = Data ({
-      name = "caml_globals_inited";
       index = 0l;
       relocation_offset = 0l;
       size =  1l;
@@ -1148,9 +1150,9 @@ let begin_assembly () = (
     })
   };
   {
+    name = "caml_backtrace_pos";
     flags = 1l;
-    details = Data ({
-      name = "caml_backtrace_pos";
+    details = Data ({      
       index = 1l;
       relocation_offset = 0l;
       size =  4l;
@@ -1553,9 +1555,9 @@ and data dl = (
         (* print_endline ("Offset for " ^ !symbol_name ^ " = " ^ string_of_int start_offset); *)
 
         data_symbols := !data_symbols @ [{
+        name = !symbol_name;
         flags = 0l;
         details = Data ({
-            name = !symbol_name;
             index = Int32.of_int !data_index;
             relocation_offset = 0l;
             size =  Int32.of_int !offset;
@@ -1567,8 +1569,6 @@ and data dl = (
         let w = !wasm_module in
 
         global_offset := !global_offset + !offset;
-
-        print_endline ("Write data for: " ^ !symbol_name ^ " at " ^ string_of_int start_offset);
 
         (* to make sure that this is always seen as data and not an integer *)
         (if !global_offset land 1 <> 0 then global_offset := !global_offset + 1);

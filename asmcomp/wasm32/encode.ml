@@ -291,23 +291,17 @@ let encode m =
       | CurrentMemory -> op 0x3f; u8 0x00
       | GrowMemory -> op 0x40; u8 0x00
       | Const { literal = I32 c; name } ->
-        (* need to figure out: 
-           - is this an address? ->  R_WEBASSEMBLY_TABLE_INDEX_SLEB
-           - is this a global? ->  R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-           - 
-        *)
         op 0x41;
         let p = pos s in
 
-        (* temp := Some (p, c); *)
         (match name with
         | Some (symbol, Data) -> (          
           List.iteri (fun symbol_index s -> match s.details with
-          | Import {name; index}
-          | Function {name; index} when name = symbol ->
+          | Import {index}
+          | Function {index} when s.name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed index
-          | Data { name; offset } when name = symbol ->
+          | Data { offset } when s.name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed offset
            | _ -> ()  
@@ -630,7 +624,7 @@ let encode m =
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           (* put_string s (Int32.to_string i32) *)
           List.iteri (fun symbol_index s -> match s.details with
-           | Data { name; index; offset } when name = symbol ->
+           | Data { index; offset } when s.name = symbol ->
             (* print_endline (symbol ^ " index = " ^ Int32.to_string index); *)
             (* print_endline (symbol ^ " R_WEBASSEMBLY_MEMORY_ADDR_I32 offset = " ^ Int32.to_string offset); *)
             if offset = (-1l) then
@@ -675,13 +669,12 @@ let encode m =
         | R_WEBASSEMBLY_TABLE_INDEX_SLEB (offset, symbol_)
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> (
           List.iteri (fun symbol_index s -> match s.details with
-          | Import {name}
-          | Function {name} when name = symbol_ -> 
-            print_endline ("Function: " ^ name) ;
+          | Import _
+          | Function _ when s.name = symbol_ -> 
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
-           | Data { name } when name = symbol_ ->
+           | Data _  when s.name = symbol_ ->
               u8 4;
               vu32 (Int32.sub offset !code_pos);
               vu32 (Int32.of_int symbol_index); 
@@ -742,7 +735,7 @@ let encode m =
         | R_WEBASSEMBLY_MEMORY_ADDR_I32 (offset, symbol_) -> (
             let symbol_index = ref (-1) in
             List.iteri (fun i s -> match s.details with
-            | Data { name } when name = symbol_ -> (
+            | Data _ when s.name = symbol_ -> (
                 symbol_index := i;
               )
             | _ -> ()) symbols;
@@ -768,11 +761,11 @@ let encode m =
       | Global f
       | Function f ->
         vu32 f.index;
-        string f.name;
+        string sym.name;
       | Import i ->
         vu32 i.index;
       | Data d ->
-        string d.name;
+        string sym.name;
         if d.index <> (-1l) then (
           vu32 d.index;
           vu32 d.relocation_offset;
@@ -819,7 +812,7 @@ let encode m =
 
       List.iteri(fun i f ->
         match f.details with
-        | Function {name = "_start"; _ } ->  (
+        | Function _ when f.name = "_start" ->  (
           u8 6; (* WASM_INIT_FUNCS *)
           let g = gap32 () in
           let p = pos s in

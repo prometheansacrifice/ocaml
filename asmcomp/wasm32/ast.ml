@@ -208,11 +208,9 @@ type data_part = {
 
 type sym_info_function = {
   index: var;
-  name: string;
 }
 
 type sym_info_data = {
-  name: string;
   index: var;
   relocation_offset: var;
   size: var;
@@ -226,6 +224,7 @@ type sym_info_details =
   | Data of sym_info_data
 
 type sym_info = {
+  name: string;
   flags: var;
   details: sym_info_details;
 }
