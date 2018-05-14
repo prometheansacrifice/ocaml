@@ -299,7 +299,7 @@ let add_missing_memory_addresses () = (
   List.iter (fun (s:data_part segment) -> 
     List.iter (fun d -> 
       match d with 
-      | MemoryAddress symbol -> (
+      | Symbol symbol -> (
           let has_symbol = List.find_opt (fun (x:data_part segment) ->
             x.init.name = symbol
           ) w.data 
@@ -1470,8 +1470,7 @@ and data dl = (
             (* R_WEBASSEMBLY_TABLE_INDEX_I32 *)
             with
             | _ -> try
-              ignore(data2 context symbol);
-              [MemoryAddress symbol]
+              [Symbol symbol]
             (* R_WEBASSEMBLY_MEMORY_ADDR_I32 *)
             with
             | _ ->(
@@ -1479,8 +1478,7 @@ and data dl = (
               [FunctionLoc (bind_func context symbol)]
             )
             else
-              (ignore (bind_data context symbol (-1l));
-              [MemoryAddress symbol])
+              [Symbol symbol]
             )
             in
             init := !init @ add;

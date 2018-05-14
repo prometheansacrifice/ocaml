@@ -602,7 +602,7 @@ let encode m =
       let data_length = List.fold_left (fun cur add ->
           cur + match add with          
           | String s -> String.length s
-          | MemoryAddress _
+          | Symbol _
           | Nativeint _
           | FunctionLoc _                   
           | Int32 _ 
@@ -619,7 +619,7 @@ let encode m =
         | Float32 f -> 
           (* put_string s (F32.to_string f) *)
           f32 f
-        | MemoryAddress symbol ->
+        | Symbol symbol ->
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           (* put_string s (Int32.to_string i32) *)

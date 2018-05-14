@@ -192,14 +192,16 @@ type import =
 }
 
 type data_part_detail =
-| String of string
-| Int32 of int32
-| Nativeint of nativeint
-| Int16 of int
-| Int8 of int
-| Float32 of F32.t
-| MemoryAddress of string
-| FunctionLoc of int32
+  | String of string
+  | Int32 of int32
+  | Nativeint of nativeint
+  | Int16 of int
+  | Int8 of int
+  | Float32 of F32.t
+
+
+  | Symbol of string
+  | FunctionLoc of int32
 
 type data_part = {
   name: string;
