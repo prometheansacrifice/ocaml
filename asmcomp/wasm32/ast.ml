@@ -78,11 +78,6 @@ type symbol_kind =
   | Function
   | Data
 
-type call = {
-  index: var;
-  name: string;
-}
-
 type const_symbol = {
   literal: literal;
   name: (string * symbol_kind) option;
@@ -98,7 +93,7 @@ type instr =
   | BrIf of var                       (* conditional break *)
   | BrTable of var list * var         (* indexed break *)
   | Return                            (* break from function body *)
-  | Call of call                      (* call function *)
+  | Call of string                    (* call function *)
   | CallIndirect of var               (* call function through table *)
   | Drop                              (* forget a value *)
   | Select                            (* branchless conditional *)

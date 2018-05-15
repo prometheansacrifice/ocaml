@@ -196,6 +196,18 @@ let encode m =
     
     let temp = ref None
     
+    let func symbol = 
+      let rec f symbol symbols result = 
+        match symbols with 
+        | {name; details = Function _} :: remaining
+        | {name; details = Import _} :: remaining when name = symbol -> result        
+        | {details = Import _} :: remaining -> f symbol remaining (Int32.add result 1l)
+        | {details = Function _} :: remaining -> f symbol remaining (Int32.add result 1l) 
+        | _ :: remaining -> f symbol remaining result
+        | [] -> assert false
+      in
+      f symbol m.symbols 0l
+
     let rec instr e =
       (match e with
       | CallIndirect _ -> ()
@@ -218,12 +230,12 @@ let encode m =
       | BrIf x -> op 0x0d; var x
       | BrTable (xs, x) -> op 0x0e; vec var xs; var x
       | Return -> op 0x0f
-      | Call x ->
+      | Call symbol ->
           op 0x10;
           let p = pos s in
-          code_relocations := !code_relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, x.index)];          
-          print_endline ("Going to call:" ^ Int32.to_string x.index);
-          reloc_index x.index
+          let index = func symbol in
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, index)];          
+          reloc_index index
       | CallIndirect x ->
         op 0x11;
         (* (match !temp with

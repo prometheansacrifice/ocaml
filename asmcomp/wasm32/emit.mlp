@@ -235,35 +235,6 @@ let turn_missing_functions_to_imports () = (
   let nr_of_added_imports  = List.length !imports in
   let w = !wasm_module in
   wasm_module := Ast.{w with imports = w.imports @ !imports};
-  let resolve_call_index (cal:Ast.call) = (
-    let w = !wasm_module in
-    let res = ref (-1) in
-    List.iteri (fun index (f:Ast.func) ->      
-      if (f.name = cal.name) then
-        res := (List.length w.imports) + index
-    ) w.funcs;
-    if !res = -1 then (
-       List.iteri (fun index i ->
-         if ((Ast.string_of_name i.item_name) = cal.name) then
-           res := index
-       ) w.imports;
-    );
-    if !res = -1 then (
-      failwith ("Can't find function for call_index for function " ^ cal.name)
-    );
-    !res
-  )
-  in  
-  let rec handle_instructions result = function
-    (* | Call ({name; index} as instr) :: rest when (Int32.to_int index) < (Int32.to_int !highest_value) ->
-      handle_instructions (result @ [Const (I32 (Int32.of_int (resolve_call_index instr))); CallIndirect !type_]) rest *)
-    | Call instr :: rest -> handle_instructions (result @ [Call {instr with index = Int32.of_int (resolve_call_index instr)}]) rest
-    | Block (rt, el) :: rest -> handle_instructions (result @ [Block (rt, handle_instructions [] el)]) rest
-    | If (crt, t, e) :: rest -> handle_instructions (result @ [If (crt, handle_instructions [] t, handle_instructions [] e)]) rest
-    | Loop (s, i) :: rest  ->  handle_instructions (result @ [Loop (s, handle_instructions [] i)]) rest
-    | instr :: rest -> handle_instructions (result @ [instr]) rest
-    | [] -> result
-  in
   let handle_export export =
     match export.edesc with
     | FuncExport i when (Int32.to_int i) < (Int32.to_int !highest_value) ->  {export with edesc = FuncExport (Int32.of_int (Int32.to_int i + nr_of_added_imports))}
@@ -271,11 +242,7 @@ let turn_missing_functions_to_imports () = (
     | _ -> export
   in
   let w = !wasm_module in
-  wasm_module := Ast.{w with funcs = List.mapi (fun index func ->
-      {func with
-        body = handle_instructions [] func.body
-      }
-    ) w.funcs;
+  wasm_module := Ast.{w with
     exports = List.map handle_export w.exports
   };
 )
@@ -477,13 +444,16 @@ let size_expr exp =
 let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
-  | Cextcall (s, mt, b, l), _ -> (
+  | Cextcall (symbol, mt, b, l), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       try 
-        [Call {index = (bind_func context s); name = s}]
+        ignore(bind_func context symbol);
+        [Call symbol]
       with 
-      | _ -> [Call {index = (func context s); name = s}]
+      | _ -> 
+        ignore(func context symbol);
+        [Call symbol]
     )
   | Cload (memory_chunk, mutable_flag), _ -> (
       let align = 0 in
@@ -545,8 +515,9 @@ let rec to_operations context (expression_list:expression list) operation =
         result
       ) [] expression_list
       in      
+      ignore(func context "caml_alloc");
       let result = [Const { literal = I32 (Nativeint.to_int32 word_size); name = None };
-       Call {index = (func context "caml_alloc"); name = "caml_alloc" };
+       Call "caml_alloc";
        SetLocal local_
       ]
       @
@@ -755,21 +726,23 @@ let rec to_operations context (expression_list:expression list) operation =
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
   | Craise _, [arg] ->
+    ignore(func context "jsRaise_i32_i32");
     (emit_expr context arg)
     @
-    [Call {index = (func context "jsRaise_i32_i32"); name = "jsRaise_i32_i32"}]
+    [Call "jsRaise_i32_i32"]
   | Ccheckbound, [fst; snd] -> (
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in
     let if_ = fst @ snd @ [Compare (I32 I32Op.LtS)] in
     let else_ = snd @ [Const { literal = I32 0l; name = None}] @ [Compare (I32 I32Op.LtS)] in
 
+    ignore(func context "jsRaise_i32_unit");
     if_ @ [If ([], [
       Const { literal = I32 (-1l); name = Some ("caml_exn_Invalid_argument", Data) };
-      Call { index = (func context "jsRaise_i32_unit"); name = "jsRaise_i32_unit"}
+      Call "jsRaise_i32_unit"
     ],else_ @ [If ([], [
         Const { literal = I32 (-1l); name = Some ("caml_exn_Invalid_argument", Data) };
-        Call {index = (func context "jsRaise_i32_unit"); name = "jsRaise_i32_unit"}
+        Call "jsRaise_i32_unit"
       ], [])])]
     )
   | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
@@ -792,14 +765,16 @@ and emit_expr (context:context) (expression:expression) =
     try
       let (res, t) = local context symbol in
       current_return_type := [t];
-      [Call {index = res; name = symbol}]
+      [Call symbol]
     with
     | _ -> try
       current_return_type := [I32Type];
-      [Call {index = (global context symbol); name = symbol}]
+      ignore(global context symbol);
+      [Call symbol]
     with
     | _ -> try (
-      [Call {index = (func context symbol); name = symbol}]
+      ignore(func context symbol);
+      [Call symbol]
     )
     with
     | _ -> try
@@ -885,21 +860,20 @@ and emit_expr (context:context) (expression:expression) =
     [CallIndirect ftype]
     )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
-    print_endline ("Calling function: " ^ hd);
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
     expression_list @
     try (
-      print_endline "calling this one...";
-      [Call {index = (func context hd); name = hd}] )
+      ignore(func context hd);
+      [Call hd] )
       with | _ ->
-      print_endline "calling second one...";
-      [Call {index = (bind_func context hd); name = hd}]
+      ignore(bind_func context hd);
+      [Call hd]
     )
   | Cop (operation, expression_list, _) ->
     to_operations context expression_list operation
   | Csequence (e1, e2) ->
-    let a = (emit_expr context e1) in
-    let b = (emit_expr context e2) in
+    let a = emit_expr context e1 in
+    let b = emit_expr context e2 in
     a @ b
   | Cifthenelse (if_, then_, else_) ->
     Stack.push "ifthenelse" block_stack;
@@ -1029,9 +1003,10 @@ and emit_expr (context:context) (expression:expression) =
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let alloc_memory_pointer = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
+      ignore(func context "caml_alloc");
       let store_instructions = ref
       [Const {literal = I32 (I32.of_int_s !memory_alloc_size); name = None };
-       Call {index = (func context "caml_alloc"); name = "caml_alloc"};
+       Call "caml_alloc";
        SetLocal alloc_memory_pointer
       ]
       in
@@ -1073,6 +1048,7 @@ and emit_expr (context:context) (expression:expression) =
       let body_fn_id = create_exception_function context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") body in
       let exn_name = (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp) in
       let handler_fn_id = create_exception_function ~is_handler:true ~exn_name context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") handler in
+      ignore (func context "caml_alloc");
       current_return_type := [I32Type];
       !store_instructions @
       !set_blocks @
@@ -1080,7 +1056,7 @@ and emit_expr (context:context) (expression:expression) =
       GetLocal alloc_memory_pointer;
       Const {literal = I32 body_fn_id; name = None};
       Const {literal = I32 handler_fn_id; name = None};
-      Call {index = (func context "caml_alloc"); name = "caml_alloc"}] @
+      Call "caml_alloc"] @
       !get_blocks @
       [ GetLocal alloc_memory_pointer;
         Load {ty = I32Type; align = 0; offset = 0l; sz = None}; (* TODO: also support float return value... *)
