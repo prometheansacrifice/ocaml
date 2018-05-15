@@ -4,7 +4,7 @@
 (*                                                                        *)
 (*                             Sander Spies                               *)
 (*                                                                        *)
-(*   Copyright 2017                                                       *)
+(*   Copyright 2017 - 2018                                                *)
 (*                                                                        *)
 (*   All rights reserved.  This file is distributed under the terms of    *)
 (*   the GNU Lesser General Public License version 2.1, with the          *)
@@ -84,17 +84,6 @@ let lookup_local category space x =
 let data2 (c : context) x = lookup "data" c.data x
 let local (c : context) x = lookup_local "local" c.locals x
 let global (c : context) x = lookup "global" c.globals x
-(* let table (c : context) x = lookup "table" c.tables x *)
-(* let memory (c : context) x = lookup "memory" c.memories x *)
-(* let label (c : context) x =
-  try VarMap.find x c.labels
-  with Not_found ->
-    failwith ("Not_found: " ^ x) *)
-
-(* let func_type (c : context) x =
-  try (Lib.List32.nth c.types.list x)
-  with Failure _ ->
-    failwith "Failure" *)
 
 let context = ref (empty_context ())
 
@@ -122,11 +111,10 @@ let bind_type (c : context) x ty =
   c.types.list <- c.types.list @ [ty];
   bind "type" c.types.space x
 
-let bind_func (c : context) x = (
+let bind_func (c : context) x = (  
   bind "function" c.funcs x
+  
 )
-
-let data_symbols = ref []
 
 let wasm_sym_binding_weak = 1l
 let create_symbol_table () = (
@@ -166,7 +154,7 @@ let create_symbol_table () = (
   in
   wasm_module := {w with
     symbols =
-      global_symbols @ func_symbols @ !data_symbols
+      w.symbols @ global_symbols @ func_symbols
   }
 )
 
@@ -306,17 +294,20 @@ let add_missing_memory_addresses () = (
           in 
           match has_symbol with 
           | Some _ -> ()
-          | _ -> (           
-             data_symbols := !data_symbols @ [{
-              name = symbol;
-              flags = 16l;
-              details = Data ({
-                  index = (-1l);
-                  relocation_offset = 0l;
-                  size = 0l;
-                  offset = 0l
-              })
-            }];
+          | _ -> (    
+            let w = !wasm_module in       
+            wasm_module := {w with symbols = w.symbols @ 
+              [{
+                name = symbol;
+                flags = 16l;
+                details = Data ({
+                    index = (-1l);
+                    relocation_offset = 0l;
+                    size = 0l;
+                    offset = 0l
+                })
+              }]
+            };
             data_index := !data_index + 1;           
           )
         )
@@ -352,9 +343,6 @@ let end_assembly () = (
   context := empty_context ();
   current_return_type := [];
   data_index := 0;
-  data_symbols := [];
-
-  
 )
 
 let oper_result_type = function
@@ -1139,7 +1127,8 @@ let begin_assembly () = (
   ignore(bind_data context "caml_globals_inited" 0l);
   ignore(bind_data context "caml_backtrace_pos" 1l);
   data_index := 2;
-  data_symbols := !data_symbols @ [{
+  let w = !wasm_module in
+  wasm_module := {w with symbols = w.symbols @ [{
     name = "caml_globals_inited";
     flags = 1l;
     details = Data ({
@@ -1159,7 +1148,7 @@ let begin_assembly () = (
       offset = 1l;
     })
   };
-  ];
+  ]};
 
   global_offset := !global_offset + 5;
 
@@ -1551,17 +1540,17 @@ and data dl = (
         ) dl;
 
         (* print_endline ("Offset for " ^ !symbol_name ^ " = " ^ string_of_int start_offset); *)
-
-        data_symbols := !data_symbols @ [{
-        name = !symbol_name;
-        flags = 0l;
-        details = Data ({
-            index = Int32.of_int !data_index;
-            relocation_offset = 0l;
-            size =  Int32.of_int !offset;
-            offset = Int32.of_int start_offset
-        })
-        }];
+        let w = !wasm_module in
+        wasm_module := {w with symbols = w.symbols @ [{
+          name = !symbol_name;
+          flags = 0l;
+          details = Data ({
+              index = Int32.of_int !data_index;
+              relocation_offset = 0l;
+              size =  Int32.of_int !offset;
+              offset = Int32.of_int start_offset
+          })
+        }]};
         data_index := !data_index + 1;
 
         let w = !wasm_module in
