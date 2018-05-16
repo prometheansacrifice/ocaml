@@ -311,31 +311,27 @@ let encode m =
       | Store {ty = F32Type | F64Type; sz = Some _; _} -> assert false
       | CurrentMemory -> op 0x3f; u8 0x00
       | GrowMemory -> op 0x40; u8 0x00
-      | Const { literal = I32 c; name } ->
+      | DataSymbol symbol ->
         op 0x41;
         let p = pos s in
-
-        (match name with
-        | Some (symbol, Data) -> (          
-          List.iteri (fun symbol_index s -> match s.details with
-          | Import
-          | Function when s.name = symbol ->
-              code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-              vs32_fixed (func_index symbol)
-          | Data { offset } when s.name = symbol ->
-              code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-              vs32_fixed offset
-           | _ -> ()  
-          ) m.symbols          
-        )
-        | Some (s, Function) -> (
-          code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, s)];
-          vs32_fixed c
-        )
-        | None -> vs32 c)
-      | Const { literal = I64 c; _ } -> op 0x42; vs64 c
-      | Const { literal = F32 c; _ } -> op 0x43; f32 c
-      | Const { literal = F64 c; _ } -> op 0x44; f64 c
+        List.iteri (fun symbol_index s -> match s.details with
+        | Import
+        | Function when s.name = symbol ->
+            code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
+            vs32_fixed (func_index symbol)
+        | Data { offset } when s.name = symbol ->
+            code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
+            vs32_fixed offset
+          | _ -> ()  
+        ) m.symbols
+      | FunctionSymbol symbol ->
+        let p = pos s in
+        code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];        
+        vs32_fixed (func_index symbol)
+      | Const (I32 c) -> op 0x41; vs32 c
+      | Const (I64 c) -> op 0x42; vs64 c
+      | Const (F32 c) -> op 0x43; f32 c
+      | Const (F64 c) -> op 0x44; f64 c
 
       | Test (I32 I32Op.Eqz) -> op 0x45
       | Test (I64 I64Op.Eqz) -> op 0x50

@@ -74,15 +74,6 @@ type var = int32
 type literal = Values.value
 type name = int list
 
-type symbol_kind = 
-  | Function
-  | Data
-
-type const_symbol = {
-  literal: literal;
-  name: (string * symbol_kind) option;
-}
-
 type instr =
   | Unreachable                       (* trap unconditionally *)
   | Nop                               (* do nothing *)
@@ -106,7 +97,9 @@ type instr =
   | Store of storeop                  (* write memory at address *)
   | CurrentMemory                     (* size of linear memory *)
   | GrowMemory                        (* grow linear memory *)
-  | Const of const_symbol             (* constant *)
+  | Const of literal                  (* constant *)
+  | DataSymbol of string
+  | FunctionSymbol of string
   | Test of testop                    (* numeric test *)
   | Compare of relop                  (* numeric comparison *)
   | Unary of unop                     (* unary numeric operator *)
