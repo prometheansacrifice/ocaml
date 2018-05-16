@@ -6,12 +6,6 @@ let version = 1l
 
 open Values
 
-(* Errors *)
-
-(* module Code = Error.Make () *)
-(* exception Code = Code.Error *)
-
-
 (* Encoding stream *)
 
 type stream =
@@ -19,11 +13,6 @@ type stream =
   buf : Buffer.t;
   patches : (int * char) list ref
 }
-
-(* let table_relocs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = [] *)
-
-(* let R_WEBASSEMBLY_FUNCTION_INDEX_LEBs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = []
-let R_WEBASSEMBLY_FUNCTION_INDEX_LEBs:R_WEBASSEMBLY_FUNCTION_INDEX_LEB list = [] *)
 
 let stream () = {buf = Buffer.create 8192; patches = ref []}
 let pos s = Buffer.length s.buf
@@ -39,7 +28,7 @@ let to_string s =
 (* Encoding *)
 
 type code_relocation =
-  | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * Ast.var   
+  | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * string
   | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var  
   | R_WEBASSEMBLY_TYPE_INDEX_LEB of int32 * Ast.var
   | R_WEBASSEMBLY_GLOBAL_INDEX_LEB of int32 * Ast.var
@@ -196,14 +185,14 @@ let encode m =
     
     let temp = ref None
     
-    let func symbol = 
+    let func_symbol_index symbol = 
       let rec f symbol symbols result = 
         match symbols with 
         | {name; details = Function _} :: remaining
         | {name; details = Import _} :: remaining when name = symbol -> result        
         | {details = Import _} :: remaining -> f symbol remaining (Int32.add result 1l)
         | {details = Function _} :: remaining -> f symbol remaining (Int32.add result 1l) 
-        | _ :: remaining -> f symbol remaining result
+        | _ :: remaining -> f symbol remaining (Int32.add result 1l)
         | [] -> assert false
       in
       f symbol m.symbols 0l
@@ -253,8 +242,8 @@ let encode m =
       | Call symbol ->
           op 0x10;
           let p = pos s in
-          let index = func symbol in
-          code_relocations := !code_relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, index)];          
+          let index = func_index symbol in
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_FUNCTION_INDEX_LEB (Int32.of_int p, symbol)];          
           reloc_index index
       | CallIndirect x ->
         op 0x11;
@@ -714,15 +703,12 @@ let encode m =
            | _ -> ()  
           ) symbols
         )
-        | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, index_) ->
-          (let symbol_index = ref (-1) in
-          List.iteri (fun i s -> match s.details with
-            | Import {index; _} when index = index_ -> symbol_index := i
-            | Function {index; _} when index = index_ -> symbol_index := i
-            | _ -> ()) symbols;
+        | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, symbol) ->
+          
+          let symbol_index = func_symbol_index symbol in
           u8 0;
           vu32 (Int32.sub offset !code_pos);
-          vu32 (Int32.of_int !symbol_index));
+          vu32 symbol_index;
         | R_WEBASSEMBLY_MEMORY_ADDR_LEB (offset, index_) -> 
           (
             let symbol_index = ref (-1) in
