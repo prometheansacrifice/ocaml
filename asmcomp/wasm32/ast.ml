@@ -215,8 +215,8 @@ type sym_info_data = {
 }
 
 type sym_info_details =
-  | Function of sym_info_function
-  | Import of sym_info_function
+  | Function
+  | Import
   | Global of sym_info_function
   | Data of sym_info_data
 

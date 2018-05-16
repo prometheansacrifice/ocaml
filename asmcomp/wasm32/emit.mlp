@@ -130,17 +130,14 @@ let create_symbol_table () = (
       {
         name = (Ast.string_of_name import.item_name);
         flags = flags;
-        details = Import {index = Int32.of_int i }
+        details = Import
       }) w.imports)
     @
     (List.mapi (fun i (f:Ast.func) ->
      {
       name = f.name;
       flags = 0l;
-      details = Function ({
-        index = Int32.of_int (List.length w.imports + i);
-        
-      })
+      details = Function
     }) w.funcs)
   in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 

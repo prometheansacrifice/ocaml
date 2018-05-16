@@ -188,10 +188,10 @@ let encode m =
     let func_symbol_index symbol = 
       let rec f symbol symbols result = 
         match symbols with 
-        | {name; details = Function _} :: remaining
-        | {name; details = Import _} :: remaining when name = symbol -> result        
-        | {details = Import _} :: remaining -> f symbol remaining (Int32.add result 1l)
-        | {details = Function _} :: remaining -> f symbol remaining (Int32.add result 1l) 
+        | {name; details = Function} :: remaining
+        | {name; details = Import} :: remaining when name = symbol -> result        
+        | {details = Import} :: remaining -> f symbol remaining (Int32.add result 1l)
+        | {details = Function} :: remaining -> f symbol remaining (Int32.add result 1l) 
         | _ :: remaining -> f symbol remaining (Int32.add result 1l)
         | [] -> assert false
       in
@@ -318,8 +318,8 @@ let encode m =
         (match name with
         | Some (symbol, Data) -> (          
           List.iteri (fun symbol_index s -> match s.details with
-          | Import {index}
-          | Function {index} when s.name = symbol ->
+          | Import
+          | Function when s.name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed (func_index symbol)
           | Data { offset } when s.name = symbol ->
@@ -691,8 +691,8 @@ let encode m =
         | R_WEBASSEMBLY_TABLE_INDEX_SLEB (offset, symbol_)
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> (
           List.iteri (fun symbol_index s -> match s.details with
-          | Import _
-          | Function _ when s.name = symbol_ -> 
+          | Import
+          | Function when s.name = symbol_ -> 
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
@@ -766,19 +766,21 @@ let encode m =
 
     let symbol sym =
       (match sym.details with
-      | Import _
-      | Function _ -> vu32 0l
+      | Import
+      | Function -> vu32 0l
       | Data _ ->  vu32 1l
       | Global _ -> vu32 2l
       );
       vu32 sym.flags;
       (match sym.details with
-      | Global f
-      | Function f ->
+      | Global f -> 
         vu32 f.index;
         string sym.name;
-      | Import i ->
-        vu32 i.index;
+      | Function ->
+        vu32 (func_index sym.name);
+        string sym.name;
+      | Import ->
+        vu32 (func_index sym.name);
       | Data d ->
         string sym.name;
         if d.index <> (-1l) then (
@@ -827,7 +829,7 @@ let encode m =
 
       List.iteri(fun i f ->
         match f.details with
-        | Function _ when f.name = "_start" ->  (
+        | Function when f.name = "_start" ->  (
           u8 6; (* WASM_INIT_FUNCS *)
           let g = gap32 () in
           let p = pos s in
