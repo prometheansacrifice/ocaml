@@ -196,7 +196,7 @@ type data_part_detail =
 
 
   | Symbol of string
-  | FunctionLoc of int32
+  | FunctionLoc of string
 
 type data_part = {
   name: string;

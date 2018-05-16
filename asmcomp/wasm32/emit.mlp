@@ -1431,16 +1431,16 @@ and data dl = (
         | Csymbol_address symbol -> (
             
             let add = try
-              [FunctionLoc (func context symbol)]
-            (* R_WEBASSEMBLY_TABLE_INDEX_I32 *)
+              ignore(func context symbol);
+              [FunctionLoc symbol]
             with
             | _ -> try
               [Symbol symbol]
-            (* R_WEBASSEMBLY_MEMORY_ADDR_I32 *)
             with
             | _ ->(
             if is_closure then ( 
-              [FunctionLoc (bind_func context symbol)]
+              ignore(bind_func context symbol);
+              [FunctionLoc symbol]
             )
             else
               [Symbol symbol]
