@@ -208,6 +208,26 @@ let encode m =
       in
       f symbol m.symbols 0l
 
+    let func_index symbol = 
+      let rec find_import imports count = 
+        match imports with
+        | {item_name} :: remaining when (Ast.string_of_name item_name) = symbol -> count
+        | _ :: remaining -> find_import remaining (Int32.add count 1l) 
+        | [] -> (-1l)
+      in
+      let result = find_import m.imports 0l in
+      if result = (-1l) then 
+        let rec find_func funcs count = 
+          match funcs with
+          | {name; ftype} :: remaining when name = symbol -> count
+          | _ :: remaining -> find_func remaining (Int32.add count 1l)
+          | [] -> failwith ("Could not find: " ^ symbol)
+        in
+        find_func m.funcs (Int32.of_int (List.length m.imports))
+      else 
+        result
+
+
     let rec instr e =
       (match e with
       | CallIndirect _ -> ()
@@ -312,7 +332,7 @@ let encode m =
           | Import {index}
           | Function {index} when s.name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-              vs32_fixed index
+              vs32_fixed (func_index symbol)
           | Data { offset } when s.name = symbol ->
               code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
               vs32_fixed offset
