@@ -112,8 +112,7 @@ let bind_type (c : context) x ty =
   bind "type" c.types.space x
 
 let bind_func (c : context) x = (  
-  bind "function" c.funcs x
-  
+  bind "function" c.funcs x  
 )
 
 let wasm_sym_binding_weak = 1l
@@ -160,20 +159,14 @@ let bind_data (c : context) x i = (
   let space = c.data in
   if VarMap.mem x space.map then
     failwith ("Duplicate:" ^ x);
-    (* error x.at ("duplicate " ^ category ^ " " ^ x.it); *)
   space.map <- VarMap.add x i space.map;
   space.count <- Int32.add space.count 1l;
   if space.count = 0l then
     failwith "Too many bindings";
-    (* error x.at ("too many " ^ category ^ " bindings"); *)
   i
 )
 let bind_global (c : context) x = bind "global" c.globals x
-(* let bind_table (c : context) x = bind "table" c.tables x *)
-(* let bind_memory (c : context) x = bind "memory" c.memories x *)
 
-(* let bind_label (c : context) x =
-  {c with labels = VarMap.add x 0l (VarMap.map (Int32.add 1l) c.labels)} *)
 let func (c : context) x =
   try
     let result = lookup "function" c.funcs x in
@@ -192,7 +185,6 @@ let enter_func (c : context) = (
 
 let unique_name_counter = ref 0
 let data_index = ref 0
-
 
 let name s =
   try Utf8.decode s with Utf8.Utf8 ->
@@ -1251,7 +1243,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       (func context fun_name, true)
     )
     in    
-
+    
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
       match fun_body with            
@@ -1259,74 +1251,8 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       | Csequence (expr1, Csequence (a, b)) -> Csequence (expr1, remove_last_unit (Csequence (a, b)))
       | _ as e -> e
     in
-    let fun_body = remove_last_unit fun_body in
-    (* let body = [] in *)
-    (* let body = (match locals with
-    | Some locals ->
-      let memory_block_position = ref 4 (* first block is the return value when present *) in
-      let mp = bind_local context "mem_pointer" I32Type in
-      args := [I32Type];
-
-      (match is_handler, exn_name with
-      | Some s, Some n when s = true -> (
-        ignore(bind_local context n I32Type);
-        args := !args @ [I32Type]
-        )
-      | _ -> ());
-
-      List.fold_left (fun l (name, t) ->
-        let local_id = bind_local context name t in
-
-        let memory_pos = [
-          GetLocal mp;
-          Const (I32 (I32.of_int_s !memory_block_position));
-          Binary (I32 I32Op.Add)
-        ] @
-          (match t with
-            | I32Type ->
-              [Load {ty = I32Type; align = 0; offset = 0l; sz = None};
-               SetLocal local_id]
-            | F32Type ->
-              [Load {ty = F32Type; align = 0; offset = 0l; sz = None};
-               SetLocal local_id]
-            | _ -> assert false
-            )
-        in
-        memory_block_position := !memory_block_position + 4;
-        memory_pos
-      ) [] locals;
-    | _ -> [])
-    in *)
-    let fun_body = emit_expr context fun_body in    
-    
-
-    (* let fun_body = (if List.length !current_return_type > 0 then
-    
-    (
-      if (fun_name = "_start") then (
-        current_return_type := [];
-        List.rev (List.tl (List.rev fun_body))
-      ) else (
-        match !current_return_type, locals with
-        | [I32Type], Some _ ->
-          current_return_type := [];
-          let (mp, _) = local context "mem_pointer" in
-          [GetLocal mp] @
-          fun_body @
-          [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
-        | [F32Type], Some _ ->
-          current_return_type := [];
-          let (mp, _) = local context "mem_pointer" in
-          [GetLocal mp] @
-          fun_body @
-          [Store {ty = F32Type; align = 0; offset = 0l; sz = None}]
-        | _ -> fun_body
-        )
-      )
-    else
-      fun_body
-    ) 
-    in *)
+    let fun_body = remove_last_unit fun_body in    
+    let fun_body = emit_expr context fun_body in        
     let body = fun_body in
     let type_ = Types.FuncType (!args, !current_return_type) in
     let ftype = bind_type context fun_name type_ in
@@ -1359,12 +1285,9 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     if (not !inserted) then (
       funcs_ := !funcs_ @ [result]
     );
-    wasm_module := Ast.{w with funcs = !funcs_};
-
-    let w = !wasm_module in
-    wasm_module := Ast.{w with types = w.types @ [type_]};
-    let w = !wasm_module in
-    wasm_module := Ast.{w with exports = w.exports @ [export]};
+    wasm_module := Ast.{w with funcs = !funcs_;
+                               types = w.types @ [type_];
+                               exports = w.exports @ [export]};
 
     let w = !wasm_module in
     let table = List.hd w.tables in
@@ -1384,7 +1307,6 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
         }]
       }
     ));
-    (* add_exception_functions ppf; *)
     ()
 )
 and data dl = (
@@ -1501,8 +1423,3 @@ and data dl = (
     }
     )
 )
-(* and compile_wasm_phrase ?locals ?is_handler ?exn_name ppf p =
-  ignore(ppf);  
-  match p with
-  | Cfunction f -> fundecl f    
-  | Cdata dl -> data dl *)
