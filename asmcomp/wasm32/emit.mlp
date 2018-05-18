@@ -229,19 +229,8 @@ let turn_missing_functions_to_imports () = (
     highest_value := value;
     ()
   ) result;
-  let nr_of_added_imports  = List.length !imports in
   let w = !wasm_module in
-  wasm_module := Ast.{w with imports = w.imports @ !imports};
-  let handle_export export =
-    match export.edesc with
-    | FuncExport i when (Int32.to_int i) < (Int32.to_int !highest_value) ->  {export with edesc = FuncExport (Int32.of_int (Int32.to_int i + nr_of_added_imports))}
-    | FuncExport i -> export
-    | _ -> export
-  in
-  let w = !wasm_module in
-  wasm_module := Ast.{w with
-    exports = List.map handle_export w.exports
-  };
+  wasm_module := Ast.{w with imports = w.imports @ !imports}
 )
 
 let global_offset = ref 0
@@ -1352,7 +1341,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     } in
     let export = {
       name = name fun_name;
-      edesc = FuncExport func_id;
+      edesc = FuncExport fun_name;
     } in
 
     let w = !wasm_module in

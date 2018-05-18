@@ -561,7 +561,7 @@ let encode m =
     (* Export section *)
     let export_desc d =
       match d with
-      | FuncExport x -> u8 0; var x
+      | FuncExport symbol -> u8 0; var (func_index symbol)
       | TableExport x -> u8 1; var x
       | MemoryExport x -> u8 2; var x
       | GlobalExport x -> u8 3; var x

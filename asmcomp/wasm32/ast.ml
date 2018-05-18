@@ -155,7 +155,7 @@ type memory_segment = string segment
 type type_ = func_type
 
 type export_desc =
-  | FuncExport of var
+  | FuncExport of string
   | TableExport of var
   | MemoryExport of var
   | GlobalExport of var
@@ -262,25 +262,6 @@ let import_type (m : module_) (im : import) : extern_type =
   | TableImport t -> ExternTableType t
   | MemoryImport t -> ExternMemoryType t
   | GlobalImport t -> ExternGlobalType t
-
-let export_type (m : module_) (ex : export) : extern_type =
-  let {edesc; _} = ex in
-  let its = List.map (import_type m) m.imports in
-  let open Lib.List32 in
-  match edesc with
-  | FuncExport x ->
-    let fts =
-      funcs its @ List.map (fun f -> func_type_for m f.ftype) m.funcs
-    in ExternFuncType (nth fts x)
-  | TableExport x ->
-    let tts = tables its @ List.map (fun t -> t.ttype) m.tables in
-    ExternTableType (nth tts x)
-  | MemoryExport x ->
-    let mts = memories its @ List.map (fun m -> m.mtype) m.memories in
-    ExternMemoryType (nth mts x)
-  | GlobalExport x ->
-    let gts = globals its @ List.map (fun g -> g.gtype) m.globals in
-    ExternGlobalType (nth gts x)
 
 let string_of_name n =
   let b = Buffer.create 16 in
