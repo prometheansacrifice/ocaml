@@ -111,6 +111,28 @@ let bind_type (c : context) x ty =
   c.types.list <- c.types.list @ [ty];
   bind "type" c.types.space x
 
+let func_symbol_exists symbol = 
+  let w = !wasm_module in
+  List.exists (fun f -> 
+    let name = f.name in
+    match f.details with
+    | Import when name = symbol -> true
+    | Function when name = symbol -> true        
+    | _ -> false
+  ) w.symbols
+
+let create_func_symbol name = 
+  if not (func_symbol_exists name) then (
+    let w = !wasm_module in
+    wasm_module := {w with 
+      symbols = w.symbols @ [{
+        name = name;
+        flags = 0l;
+        details = Function
+      }]
+    }
+  )
+
 let bind_func (c : context) x = (  
   bind "function" c.funcs x  
 )
@@ -119,6 +141,7 @@ let wasm_sym_binding_weak = 1l
 let create_symbol_table () = (
   let w = !wasm_module in
   let func_symbols =
+    
     (List.mapi (fun i import ->
       let flags = if true (* (Ast.string_of_name import.module_name) = "linking" *)  then (
         Int32.add 16l wasm_sym_binding_weak
@@ -131,13 +154,7 @@ let create_symbol_table () = (
         flags = flags;
         details = Import
       }) w.imports)
-    @
-    (List.mapi (fun i (f:Ast.func) ->
-     {
-      name = f.name;
-      flags = 0l;
-      details = Function
-    }) w.funcs)
+    
   in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
@@ -1236,6 +1253,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       args := [Types.I32Type] @ !args;
     ) fun_args;
 
+    create_func_symbol fun_name;
     let (func_id, place) = try (
       (bind_func context fun_name, false)
     ) with
