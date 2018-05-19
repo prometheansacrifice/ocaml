@@ -133,29 +133,24 @@ let create_func_symbol name =
     }
   )
 
+let create_import_symbol name = 
+  if not (func_symbol_exists name) then (
+    let w = !wasm_module in
+    wasm_module := {w with 
+      symbols = w.symbols @ [{
+        name = name;
+        flags = 17l;
+        details = Import
+      }]
+    }
+  )
+
 let bind_func (c : context) x = (  
   bind "function" c.funcs x  
 )
 
-let wasm_sym_binding_weak = 1l
 let create_symbol_table () = (
   let w = !wasm_module in
-  let func_symbols =
-    
-    (List.mapi (fun i import ->
-      let flags = if true (* (Ast.string_of_name import.module_name) = "linking" *)  then (
-        Int32.add 16l wasm_sym_binding_weak
-      ) else (
-        16l
-      )
-      in
-      {
-        name = (Ast.string_of_name import.item_name);
-        flags = flags;
-        details = Import
-      }) w.imports)
-    
-  in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
     name = g.name;
@@ -167,7 +162,7 @@ let create_symbol_table () = (
   in
   wasm_module := {w with
     symbols =
-      w.symbols @ global_symbols @ func_symbols
+      w.symbols @ global_symbols 
   }
 )
 
@@ -210,19 +205,21 @@ let name s =
 let turn_missing_functions_to_imports () = (
   let context = !context in
   let w = !wasm_module in
-  let result = VarMap.filter Ast.(fun key value ->
-    let result = ref true in
-    List.iteri (fun index _ ->
-      if (index = Int32.to_int value) then
-        result := false
-    ) w.imports;
-    not (List.exists (fun (f:Ast.func) -> f.name = key) w.funcs) && !result
-  ) context.funcs.map in
-
+  let missing_imports = List.filter Ast.(fun symbol ->
+    match symbol.details with 
+    | Function
+    | Import  -> (
+      let key = symbol.name in
+      not (List.exists (fun (i:Ast.import) -> (Ast.string_of_name i.item_name) = key) w.imports)
+      &&
+      not (List.exists (fun (f:Ast.func) -> f.name = key) w.funcs)
+    )
+    | _ -> false    
+  ) w.symbols in  
   let imports = ref [] in
-  let highest_value = ref 0l in
   let type_ = ref (-1l) in
-  VarMap.iter (fun key value ->
+  List.iter (fun symbol ->
+    let key = symbol.name in
     (* create a temp empty type... *)
     (* TODO: refactor... *)
     let empty_type = Types.FuncType ([], []) in
@@ -235,9 +232,7 @@ let turn_missing_functions_to_imports () = (
       item_name = name key;
       idesc = FuncImport empty_ftype
     }];
-    highest_value := value;
-    ()
-  ) result;
+  ) missing_imports;
   let w = !wasm_module in
   wasm_module := Ast.{w with imports = w.imports @ !imports}
 )
@@ -444,6 +439,7 @@ let rec to_operations context (expression_list:expression list) operation =
       expression_list @
       try 
         ignore(bind_func context symbol);
+        create_import_symbol symbol;
         [Call symbol]
       with 
       | _ -> 
@@ -488,15 +484,12 @@ let rec to_operations context (expression_list:expression list) operation =
         @
         (match f with 
         | Cconst_symbol symbol -> (
-          print_endline ("Dat symbol:" ^ symbol);
           try 
           ignore(data2 context symbol);
-          (* current_return_type := [I32Type]; *)
           [DataSymbol symbol]
         with
         | _ -> 
           ignore(bind_data context symbol (-1l));
-          (* current_return_type := [I32Type]; *)
           [DataSymbol symbol]
         )
         | _ as e -> emit_expr context e)
@@ -862,6 +855,7 @@ and emit_expr (context:context) (expression:expression) =
       [Call hd] )
       with | _ ->
       ignore(bind_func context hd);
+      create_import_symbol hd;
       [Call hd]
     )
   | Cop (operation, expression_list, _) ->
@@ -1179,6 +1173,15 @@ let begin_assembly () = (
   ignore(bind_func context "caml_alloc");
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
+
+  create_import_symbol "jsTryWith";
+  create_import_symbol "jsRaise_i32_i32";
+  create_import_symbol "jsRaise_i32_unit";
+  create_import_symbol "caml_fresh_oo_id";
+  create_import_symbol "caml_alloc";
+  create_import_symbol "camlCamlinternalFormatBasics__entry";
+  create_import_symbol "camlPervasives__entry";
+
   let exports = [
   {
     name = name "table";
@@ -1255,7 +1258,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
 
     create_func_symbol fun_name;
     let (func_id, place) = try (
-      (bind_func context fun_name, false)
+      (bind_func context fun_name, false)      
     ) with
     | _ -> (
       (func context fun_name, true)
