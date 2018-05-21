@@ -1255,7 +1255,8 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       (func context fun_name, true)
     )
     in    
-    
+    ignore(func_id);
+    ignore(place);
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
       match fun_body with            
@@ -1283,21 +1284,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     } in
 
     let w = !wasm_module in
-    let funcs_ = ref [] in
-    let inserted = ref false in
-    List.iteri (fun i f -> (
-      if (i + (List.length w.imports) == Int32.to_int func_id) then (
-        funcs_ := !funcs_ @ [result; f];
-        inserted := true;
-      ) else (
-        funcs_ := !funcs_ @ [f]
-      )
-    )) w.funcs;
-
-    if (not !inserted) then (
-      funcs_ := !funcs_ @ [result]
-    );
-    wasm_module := Ast.{w with funcs = !funcs_;
+    wasm_module := Ast.{w with funcs = w.funcs @ [result];
                                types = w.types @ [type_];
                                exports = w.exports @ [export]};
 
