@@ -492,7 +492,7 @@ let rec to_operations context (expression_list:expression list) operation =
         result
       ) [] expression_list
       in      
-      ignore(func context "caml_alloc");
+      
       let result = [Const (I32 (Nativeint.to_int32 word_size));
        Call "caml_alloc";
        SetLocal local_
@@ -978,7 +978,7 @@ and emit_expr (context:context) (expression:expression) =
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let alloc_memory_pointer = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
-      ignore(func context "caml_alloc");
+      
       let store_instructions = ref
       [Const (I32 (I32.of_int_s !memory_alloc_size));
        Call "caml_alloc";
@@ -1023,7 +1023,7 @@ and emit_expr (context:context) (expression:expression) =
       let body_fn_id = create_exception_function context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_body") body in
       let exn_name = (exn.Ident.name ^ "_" ^ string_of_int exn.Ident.stamp) in
       let handler_fn_id = create_exception_function ~is_handler:true ~exn_name context alloc_memory_pointer (exn.Ident.name ^ "_" ^ (string_of_int exn.Ident.stamp) ^ "_handler") handler in
-      ignore (func context "caml_alloc");
+      
       current_return_type := [I32Type];
       !store_instructions @
       !set_blocks @
@@ -1153,8 +1153,7 @@ let begin_assembly () = (
   ignore(bind_func context "jsTryWith");
   ignore(bind_func context "jsRaise_i32_i32");
   ignore(bind_func context "jsRaise_i32_unit");
-  ignore(bind_func context "caml_fresh_oo_id");
-  ignore(bind_func context "caml_alloc");
+  ignore(bind_func context "caml_fresh_oo_id");  
   ignore(bind_func context "camlCamlinternalFormatBasics__entry");
   ignore(bind_func context "camlPervasives__entry");
 
@@ -1194,7 +1193,7 @@ let begin_assembly () = (
     | i when i = 0 -> result
     | _ -> assert false
   in
-  let elems = add_elems [] (Int32.to_int context.funcs.count) in
+  let elems = add_elems [] no_of_imports in
   let w = !wasm_module in
   wasm_module := Ast.{w with
     globals = globals;
