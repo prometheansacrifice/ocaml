@@ -216,6 +216,15 @@ let encode m =
       else 
         result
 
+(* 
+    let calc_expected_value reloc = 
+      match reloc with
+        | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * string
+        | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var  
+        | R_WEBASSEMBLY_TYPE_INDEX_LEB of int32 * Ast.var
+        | R_WEBASSEMBLY_GLOBAL_INDEX_LEB of int32 * Ast.var
+        | R_WEBASSEMBLY_MEMORY_ADDR_SLEB of int32 * string
+        | R_WEBASSEMBLY_TABLE_INDEX_SLEB  of int32 * string *)
 
     let rec instr e =
       (match e with
@@ -325,8 +334,8 @@ let encode m =
           | _ -> ()  
         ) m.symbols
       | FunctionSymbol symbol ->
-        let p = pos s in
-        code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];        
+        let p = pos s in 
+        code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];
         vs32_fixed (func_index symbol)
       | Const (I32 c) -> op 0x41; vs32 c
       | Const (I64 c) -> op 0x42; vs64 c
@@ -611,9 +620,6 @@ let encode m =
     let elem_section elems =
       section 9 (vec table_segment) elems (elems <> [])
 
-    (* Data section *)
-    (* let memory_segment seg =
-      segment string seg *)
 
     let data_part_list symbols (data_part_list:data_part) =
       let data_length = List.fold_left (fun cur add ->
@@ -631,19 +637,14 @@ let encode m =
       List.iter (fun f ->
         match f with
         | String bs -> 
-          (* print_endline "write an string here..."; *)
           put_string s bs
         | Float32 f -> 
-          (* put_string s (F32.to_string f) *)
           f32 f
         | Symbol symbol ->
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
-          (* put_string s (Int32.to_string i32) *)
           List.iteri (fun symbol_index s -> match s.details with
            | Data { index; offset } when s.name = symbol ->
-            (* print_endline (symbol ^ " index = " ^ Int32.to_string index); *)
-            (* print_endline (symbol ^ " R_WEBASSEMBLY_MEMORY_ADDR_I32 offset = " ^ Int32.to_string offset); *)
             if offset = (-1l) then
               u32 0l
             else
@@ -653,21 +654,15 @@ let encode m =
         | FunctionLoc symbol -> 
           let p = pos s in
           let symbol_index = func_index symbol in
-          data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];
-          (* put_string s (Int32.to_string i32) *)
+          data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];          
           u32 symbol_index
         | Int32 i32 -> 
-          (* put_string s (Int32.to_string i32) *)
           u32 i32
         | Nativeint ni -> 
-          (* put_string s (Nativeint.to_string ni) *)
-
           u32 (Nativeint.to_int32 ni)
         | Int16 i -> 
-          (* put_string s (string_of_int i) *)
           u16 i
         | Int8 i -> 
-          (* put_string s (string_of_int i) *)
           u8 i
       ) data_part_list.detail
 
@@ -737,12 +732,12 @@ let encode m =
       vu32 (Int32.of_int (List.length !data_relocations));
       List.iter (fun r ->
         match r with      
-        | R_WEBASSEMBLY_TABLE_INDEX_I32 (offset, symbol) -> (
-            let symbol_index = func_symbol_index symbol in
-            u8 2;
-            vu32 (Int32.sub offset !data_pos);
-            vu32 symbol_index;
-          )
+        | R_WEBASSEMBLY_TABLE_INDEX_I32 (offset, symbol) -> (            
+          let symbol_index = func_symbol_index symbol in
+          u8 2;
+          vu32 (Int32.sub offset !data_pos);
+          vu32 symbol_index;
+        )
         | R_WEBASSEMBLY_MEMORY_ADDR_I32 (offset, symbol_) -> (
             let symbol_index = ref (-1) in
             List.iteri (fun i s -> match s.details with
@@ -760,31 +755,64 @@ let encode m =
     let relocate_data_section symbols data =
       custom_section "reloc.DATA" (reloc_data symbols) data (data <> [])
 
+    let written_symbols:string list ref = ref []
+
     let symbol sym =
-      (match sym.details with
-      | Import
-      | Function -> vu32 0l
-      | Data _ ->  vu32 1l
-      | Global _ -> vu32 2l
-      );
-      vu32 sym.flags;
-      (match sym.details with
-      | Global f -> 
-        vu32 f.index;
-        string sym.name;
-      | Function ->
-        vu32 (func_index sym.name);
-        string sym.name;
-      | Import ->
-        vu32 (func_index sym.name);
-      | Data d ->
-        string sym.name;
-        if d.index <> (-1l) then (
-          vu32 d.index;
-          vu32 d.relocation_offset;
-          vu32 d.size
+      if not (List.exists (fun f -> f = sym.name) !written_symbols) then (
+        written_symbols := !written_symbols @ [sym.name];
+        
+        (match sym.details with
+        | Import
+        | Function -> vu32 0l
+        | Data _ ->  vu32 1l
+        | Global _ -> vu32 2l
+        );
+
+        let flags = 
+         ref (match sym.details with
+            | Import -> 1l
+            | Function -> 1l
+            | Data _ ->  1l
+            | Global _ -> 2l
+            )
+        in
+        let exists = (match sym.details with
+        | Import -> false
+        | Function -> 
+          (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
+            print_endline ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));
+            List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs            
+          );
+          (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs)
+        | Data d -> 
+          d.index <> (-1l)
+        | _ -> true
         )
-      )
+        in
+        if not exists then 
+        (
+          flags := Int32.logor !flags 16l
+        );        
+        vu32 !flags;        
+        (match sym.details with
+        | Global f -> 
+          vu32 f.index;
+          string sym.name;
+        | Function ->
+          vu32 (func_index sym.name);
+          string sym.name;
+        | Import ->
+          vu32 (func_index sym.name);
+        | Data d ->
+          string sym.name;
+          if exists then (
+            vu32 d.index;
+            vu32 d.relocation_offset;
+            vu32 d.size
+          )
+        )        
+      );
+      ()
 
 
     let symbol_table (data, (data2:data_part segment list)) =

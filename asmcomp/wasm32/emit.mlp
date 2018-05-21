@@ -111,7 +111,7 @@ let bind_type (c : context) x ty =
   c.types.list <- c.types.list @ [ty];
   bind "type" c.types.space x
 
-let func_symbol_exists symbol = 
+(* let func_symbol_exists symbol = 
   let w = !wasm_module in
   List.exists (fun f -> 
     let name = f.name in
@@ -119,31 +119,25 @@ let func_symbol_exists symbol =
     | Import when name = symbol -> true
     | Function when name = symbol -> true        
     | _ -> false
-  ) w.symbols
+  ) w.symbols *)
 
 let create_func_symbol name = 
-  if not (func_symbol_exists name) then (
-    let w = !wasm_module in
-    wasm_module := {w with 
-      symbols = w.symbols @ [{
-        name = name;
-        flags = 0l;
-        details = Function
-      }]
-    }
-  )
+  let w = !wasm_module in
+  wasm_module := {w with 
+    symbols = w.symbols @ [{
+      name = name;
+      details = Function
+    }]
+  }
 
 let create_import_symbol name = 
-  if not (func_symbol_exists name) then (
-    let w = !wasm_module in
-    wasm_module := {w with 
-      symbols = w.symbols @ [{
-        name = name;
-        flags = 17l;
-        details = Import
-      }]
-    }
-  )
+  let w = !wasm_module in
+  wasm_module := {w with 
+    symbols = w.symbols @ [{
+      name = name;
+      details = Import
+    }]
+  }
 
 let bind_func (c : context) x = (  
   bind "function" c.funcs x  
@@ -154,7 +148,6 @@ let create_symbol_table () = (
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
     name = g.name;
-    flags = 2l;
     details = Global ({
       index = Int32.of_int i;      
     })
@@ -256,7 +249,6 @@ let add_missing_memory_addresses () = (
             wasm_module := {w with symbols = w.symbols @ 
               [{
                 name = symbol;
-                flags = 16l;
                 details = Data ({
                     index = (-1l);
                     relocation_offset = 0l;
@@ -439,7 +431,7 @@ let rec to_operations context (expression_list:expression list) operation =
       expression_list @
       try 
         ignore(bind_func context symbol);
-        create_import_symbol symbol;
+        create_func_symbol symbol;
         [Call symbol]
       with 
       | _ -> 
@@ -797,7 +789,6 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Clet (ident, arg, fn_body) -> (
     let binding_name = ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp in
-    print_endline ("Creating binding: " ^ binding_name);
     let let_id = bind_local context binding_name I32Type in
     let result = emit_expr context arg in
     current_return_type := [];
@@ -855,6 +846,7 @@ and emit_expr (context:context) (expression:expression) =
       [Call hd] )
       with | _ ->
       ignore(bind_func context hd);
+      print_endline ("Importing: " ^ hd);
       create_import_symbol hd;
       [Call hd]
     )
@@ -1095,7 +1087,6 @@ let begin_assembly () = (
   let w = !wasm_module in
   wasm_module := {w with symbols = w.symbols @ [{
     name = "caml_globals_inited";
-    flags = 1l;
     details = Data ({
       index = 0l;
       relocation_offset = 0l;
@@ -1105,7 +1096,6 @@ let begin_assembly () = (
   };
   {
     name = "caml_backtrace_pos";
-    flags = 1l;
     details = Data ({      
       index = 1l;
       relocation_offset = 0l;
@@ -1261,6 +1251,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
       (bind_func context fun_name, false)      
     ) with
     | _ -> (
+      print_endline ("Failed to create a symbol for:" ^ fun_name);
       (func context fun_name, true)
     )
     in    
@@ -1417,7 +1408,6 @@ and data dl = (
         let w = !wasm_module in
         wasm_module := {w with symbols = w.symbols @ [{
           name = !symbol_name;
-          flags = 0l;
           details = Data ({
               index = Int32.of_int !data_index;
               relocation_offset = 0l;

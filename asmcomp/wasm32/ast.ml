@@ -186,8 +186,6 @@ type data_part_detail =
   | Int16 of int
   | Int8 of int
   | Float32 of F32.t
-
-
   | Symbol of string
   | FunctionLoc of string
 
@@ -215,7 +213,6 @@ type sym_info_details =
 
 type sym_info = {
   name: string;
-  flags: var;
   details: sym_info_details;
 }
 
