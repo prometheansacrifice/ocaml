@@ -431,7 +431,7 @@ let rec to_operations context (expression_list:expression list) operation =
       expression_list @
       try 
         ignore(bind_func context symbol);
-        create_func_symbol symbol;
+        create_import_symbol symbol;
         [Call symbol]
       with 
       | _ -> 

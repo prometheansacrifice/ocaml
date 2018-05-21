@@ -773,15 +773,15 @@ let encode m =
             | Import -> 1l
             | Function -> 1l
             | Data _ ->  1l
-            | Global _ -> 2l
+            | Global _ -> 2l (* why is this 2... *)
             )
         in
         let exists = (match sym.details with
         | Import -> false
         | Function -> 
           (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
-            print_endline ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));
-            List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs            
+            (* List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs             *)
+            failwith ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));            
           );
           (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs)
         | Data d -> 
