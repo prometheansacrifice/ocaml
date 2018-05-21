@@ -111,7 +111,7 @@ let bind_type (c : context) x ty =
   c.types.list <- c.types.list @ [ty];
   bind "type" c.types.space x
 
-(* let func_symbol_exists symbol = 
+let func_symbol_exists symbol = 
   let w = !wasm_module in
   List.exists (fun f -> 
     let name = f.name in
@@ -119,7 +119,7 @@ let bind_type (c : context) x ty =
     | Import when name = symbol -> true
     | Function when name = symbol -> true        
     | _ -> false
-  ) w.symbols *)
+  ) w.symbols
 
 let create_func_symbol name = 
   let w = !wasm_module in
@@ -369,7 +369,7 @@ type exception_fn = {
 
 let exception_fns:((exception_fn list) ref) = ref []
 let create_exception_function ?is_handler:(is_handler = false) ?exn_name (context:context) mem_pointer (name: string) (instr:expression) = (
-    let fn_id = bind_func context name in
+    let fn_id = (-1l) in
     let (st:((string * value_type) list) ref) = ref [] in
     VarMap.iter (fun key (value, t) -> st := !st @ [(key, t)]) context.locals.l_map;
     let e_fn = {
@@ -429,14 +429,11 @@ let rec to_operations context (expression_list:expression list) operation =
   | Cextcall (symbol, mt, b, l), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
-      try 
-        ignore(bind_func context symbol);
-        create_import_symbol symbol;
-        [Call symbol]
-      with 
-      | _ -> 
-        ignore(func context symbol);
-        [Call symbol]
+      (if not (func_symbol_exists symbol) then 
+        (create_import_symbol symbol;
+        [Call symbol])
+      else
+        [Call symbol])
     )
   | Cload (memory_chunk, mutable_flag), _ -> (
       let align = 0 in
@@ -841,15 +838,12 @@ and emit_expr (context:context) (expression:expression) =
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
     expression_list @
-    try (
-      ignore(func context hd);
-      [Call hd] )
-      with | _ ->
-      ignore(bind_func context hd);
-      print_endline ("Importing: " ^ hd);
-      create_import_symbol hd;
+    (if func_symbol_exists hd then    
       [Call hd]
-    )
+     else (
+      create_import_symbol hd;
+      [Call hd])
+    ))
   | Cop (operation, expression_list, _) ->
     to_operations context expression_list operation
   | Csequence (e1, e2) ->
@@ -1183,7 +1177,10 @@ let begin_assembly () = (
   }
   ]
   in
-  let tables = [{ttype = TableType ({min = context.funcs.count; max = Some context.funcs.count}, AnyFuncType)}]
+  let w = !wasm_module in
+  let no_of_imports = List.length (List.filter (fun f -> match f.details with | Function | Import -> true | _ -> false) w.symbols) in
+
+  let tables = [{ttype = TableType ({min = Int32.of_int no_of_imports; max = Some (Int32.of_int no_of_imports)}, AnyFuncType)}]
   in
   let rec add_elems result i = 
     match i with 
@@ -1247,16 +1244,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     ) fun_args;
 
     create_func_symbol fun_name;
-    let (func_id, place) = try (
-      (bind_func context fun_name, false)      
-    ) with
-    | _ -> (
-      print_endline ("Failed to create a symbol for:" ^ fun_name);
-      (func context fun_name, true)
-    )
-    in    
-    ignore(func_id);
-    ignore(place);
+    
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
       match fun_body with            
@@ -1314,32 +1302,17 @@ and data dl = (
         let init = ref [] in
         let start_offset = !global_offset in
         (* let data_id = ref 0l in *)
-        let offset = ref 0 in
-        let is_closure =
-        (match (List.nth dl 0) with
-        | Cint i when (((Nativeint.to_int i) land 255) == 247) -> true
-        | _ -> false)
-        in
+        let offset = ref 0 in        
         let symbol_name = ref "" in
         List.iter (function
         | Cglobal_symbol s -> ()
         | Csymbol_address symbol -> (
             
-            let add = try
-              ignore(func context symbol);
-              [FunctionLoc symbol]
-            with
-            | _ -> try
-              [Symbol symbol]
-            with
-            | _ ->(
-            if is_closure then ( 
-              ignore(bind_func context symbol);
-              [FunctionLoc symbol]
-            )
-            else
-              [Symbol symbol]
-            )
+            let add =
+              if (func_symbol_exists symbol) then 
+                [FunctionLoc symbol]
+              else             
+                [Symbol symbol]            
             in
             init := !init @ add;
             offset := !offset + 4;
