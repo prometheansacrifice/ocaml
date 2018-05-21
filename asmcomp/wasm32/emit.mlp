@@ -139,10 +139,6 @@ let create_import_symbol name =
     }]
   }
 
-let bind_func (c : context) x = (  
-  bind "function" c.funcs x  
-)
-
 let create_symbol_table () = (
   let w = !wasm_module in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
@@ -171,13 +167,6 @@ let bind_data (c : context) x i = (
   i
 )
 let bind_global (c : context) x = bind "global" c.globals x
-
-let func (c : context) x =
-  try
-    let result = lookup "function" c.funcs x in
-    result
-  with
-    | Not_found -> failwith ("Not found function:" ^ x)
 
 let current_return_type = ref []
 
@@ -702,8 +691,7 @@ let rec to_operations context (expression_list:expression list) operation =
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
-  | Craise _, [arg] ->
-    ignore(func context "jsRaise_i32_i32");
+  | Craise _, [arg] ->    
     (emit_expr context arg)
     @
     [Call "jsRaise_i32_i32"]
@@ -713,7 +701,6 @@ let rec to_operations context (expression_list:expression list) operation =
     let if_ = fst @ snd @ [Compare (I32 I32Op.LtS)] in
     let else_ = snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
 
-    ignore(func context "jsRaise_i32_unit");
     if_ @ [If ([], [
       DataSymbol "caml_exn_Invalid_argument";
       Call "jsRaise_i32_unit"
@@ -749,19 +736,14 @@ and emit_expr (context:context) (expression:expression) =
       ignore(global context symbol);
       [Call symbol]
     with
-    | _ -> try (
-      ignore(func context symbol);
-      [Call symbol]
-    )
-    with
-    | _ -> try
+    | _ -> try (      
       ignore(data2 context symbol);
       current_return_type := [I32Type];
       [
         DataSymbol symbol;
         Const (I32 4l);
         Binary (I32 I32Op.Add)
-      ]
+      ])
     with
     | _ -> 
       ignore(bind_data context symbol (-1l));
@@ -1150,13 +1132,7 @@ let begin_assembly () = (
   ]
   in
 
-  ignore(bind_func context "jsTryWith");
-  ignore(bind_func context "jsRaise_i32_i32");
-  ignore(bind_func context "jsRaise_i32_unit");
-  ignore(bind_func context "caml_fresh_oo_id");  
-  ignore(bind_func context "camlCamlinternalFormatBasics__entry");
-  ignore(bind_func context "camlPervasives__entry");
-
+  
   create_import_symbol "jsTryWith";
   create_import_symbol "jsRaise_i32_i32";
   create_import_symbol "jsRaise_i32_unit";
