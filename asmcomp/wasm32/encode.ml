@@ -517,7 +517,7 @@ let encode m =
       end
 
     (* Type section *)
-    let type_ t = func_type t
+    let type_ (t:Ast.type_) = func_type t.details
 
     let type_section ts =
       section 1 (vec type_) ts (ts <> [])

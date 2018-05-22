@@ -184,7 +184,7 @@ let name s =
   try Utf8.decode s with Utf8.Utf8 ->
     failwith "invalid UTF-8 encoding"
 
-let turn_missing_functions_to_imports () = (
+let turn_missing_functions_to_imports () = ( (* TODO: move to encode *)
   let context = !context in
   let w = !wasm_module in
   let missing_imports = List.filter Ast.(fun symbol ->
@@ -204,7 +204,7 @@ let turn_missing_functions_to_imports () = (
     let key = symbol.name in
     (* create a temp empty type... *)
     (* TODO: refactor... *)
-    let empty_type = Types.FuncType ([], []) in
+    let empty_type:Ast.type_ = {name = ("empty_type_" ^ key); details = Types.FuncType ([], [])} in
     let empty_ftype = bind_type context ("empty_type_" ^ key) empty_type in
     type_ := empty_ftype;
     let w = !wasm_module in
@@ -255,10 +255,10 @@ let add_missing_memory_addresses () = (
 )
   
 
-let end_assembly () = (
-  turn_missing_functions_to_imports ();
-  add_missing_memory_addresses ();
-  create_symbol_table ();
+let end_assembly () = (  
+  turn_missing_functions_to_imports (); (* Move to Encode *)
+  add_missing_memory_addresses (); (* Move to Encode *)
+  create_symbol_table (); (* Move to Encode *)
   Encode.encode !wasm_module;  
   wasm_module := {
     types = [];
@@ -276,7 +276,7 @@ let end_assembly () = (
     data = [];
     imports = [];
     exports = [];
-    symbols = [];
+    symbols = []; (* Move to Encode *)
   };
   context := empty_context ();
   current_return_type := [];
@@ -807,9 +807,9 @@ and emit_expr (context:context) (expression:expression) =
         lst
     ) [] tl in
     let load_action = to_operations context el op in
-    let type_ = FuncType (!fn_args, [I32Type]) in
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
+    let type_:Ast.type_ = {name = ("wasm_unique_name_" ^ string_of_int counter); details = FuncType (!fn_args, [I32Type])} in    
     let ftype = bind_type context ("wasm_unique_name_" ^ string_of_int counter) type_ in
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [type_]};
@@ -1083,10 +1083,10 @@ let begin_assembly () = (
 
   global_offset := !global_offset + 5;
 
-  let jsTryWithType = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], []) in
-  let type_ = Types.FuncType ([Types.I32Type], [Types.I32Type]) in
-  let empty_type = Types.FuncType ([], []) in
-  let raise_i32_unit = Types.FuncType ([Types.I32Type], []) in
+  let jsTryWithType:Ast.type_ = {name = "jsTryWithType"; details = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], [])} in
+  let type_:Ast.type_ = {name = "type_"; details = Types.FuncType ([Types.I32Type], [Types.I32Type])} in
+  let empty_type:Ast.type_ = {name = "empty_type"; details = Types.FuncType ([], [])} in
+  let raise_i32_unit:Ast.type_ = {name = "raise_i32_ftype"; details = Types.FuncType ([Types.I32Type], [])} in
   let types = [ jsTryWithType; type_; empty_type; raise_i32_unit] in
   let jsTryWithType_ = bind_type context "jsTryWithType" jsTryWithType in
   let type__ftype = bind_type context "type_" type_ in
@@ -1230,7 +1230,7 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     let fun_body = remove_last_unit fun_body in    
     let fun_body = emit_expr context fun_body in        
     let body = fun_body in
-    let type_ = Types.FuncType (!args, !current_return_type) in
+    let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
     let ftype = bind_type context fun_name type_ in
     let locals = ref []
     in

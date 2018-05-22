@@ -152,7 +152,10 @@ type memory_segment = string segment
 
 (* Modules *)
 
-type type_ = func_type
+type type_ = {
+  name: string;
+  details: func_type
+}
 
 type export_desc =
   | FuncExport of string
@@ -248,17 +251,6 @@ let empty_module =
   exports = [];
   symbols = [];
 }
-
-let func_type_for (m : module_) (x : var) : func_type =
-  (Lib.List32.nth m.types x)
-
-let import_type (m : module_) (im : import) : extern_type =
-  let {idesc; _} = im in
-  match idesc with
-  | FuncImport x -> ExternFuncType (func_type_for m x)
-  | TableImport t -> ExternTableType t
-  | MemoryImport t -> ExternMemoryType t
-  | GlobalImport t -> ExternGlobalType t
 
 let string_of_name n =
   let b = Buffer.create 16 in
