@@ -85,7 +85,7 @@ type instr =
   | BrTable of var list * var         (* indexed break *)
   | Return                            (* break from function body *)
   | Call of string                    (* call function *)
-  | CallIndirect of var               (* call function through table *)
+  | CallIndirect of string            (* call function through table *)
   | Drop                              (* forget a value *)
   | Select                            (* branchless conditional *)
   | GetLocal of var                   (* read local variable *)
@@ -170,7 +170,7 @@ type export =
 }
 
 type import_desc =
-  | FuncImport of var
+  | FuncImport of string
   | TableImport of table_type
   | MemoryImport of memory_type
   | GlobalImport of global_type

@@ -226,6 +226,15 @@ let encode m =
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB of int32 * string
         | R_WEBASSEMBLY_TABLE_INDEX_SLEB  of int32 * string *)
 
+    let find_type x = 
+      let rec iter result = function
+        | ({name}:Ast.type_) :: remaining when name = x -> result
+        | ({name}:Ast.type_) :: remaining -> iter (Int32.add result 1l) remaining
+        | [] -> result
+      in
+      iter 0l m.types 
+
+
     let rec instr e =
       (match e with
       | CallIndirect _ -> ()
@@ -261,6 +270,7 @@ let encode m =
         | None -> ());
         temp := None; *)
         let p2 = pos s in
+        let x = find_type x in
         code_relocations := !code_relocations @ [R_WEBASSEMBLY_TYPE_INDEX_LEB (Int32.of_int p2, x)];
         reloc_index x;
         u8 0x00
@@ -522,10 +532,11 @@ let encode m =
     let type_section ts =
       section 1 (vec type_) ts (ts <> [])
 
+    
     (* Import section *)
     let import_desc d =
       match d with
-      | FuncImport x -> u8 0x00; var x
+      | FuncImport x -> u8 0x00; var (find_type x)
       | TableImport t -> u8 0x01; table_type t
       | MemoryImport t -> u8 0x02; memory_type t
       | GlobalImport t -> u8 0x03; global_type t

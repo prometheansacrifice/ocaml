@@ -204,15 +204,16 @@ let turn_missing_functions_to_imports () = ( (* TODO: move to encode *)
     let key = symbol.name in
     (* create a temp empty type... *)
     (* TODO: refactor... *)
-    let empty_type:Ast.type_ = {name = ("empty_type_" ^ key); details = Types.FuncType ([], [])} in
-    let empty_ftype = bind_type context ("empty_type_" ^ key) empty_type in
+    let name_ = ("empty_type_" ^ key) in
+    let empty_type:Ast.type_ = {name = name_; details = Types.FuncType ([], [])} in
+    let empty_ftype = bind_type context name_ empty_type in
     type_ := empty_ftype;
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [empty_type]};
     imports := !imports @ [{
       module_name = name "libasmrun";
       item_name = name key;
-      idesc = FuncImport empty_ftype
+      idesc = FuncImport name_
     }];
   ) missing_imports;
   let w = !wasm_module in
@@ -809,13 +810,14 @@ and emit_expr (context:context) (expression:expression) =
     let load_action = to_operations context el op in
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
-    let type_:Ast.type_ = {name = ("wasm_unique_name_" ^ string_of_int counter); details = FuncType (!fn_args, [I32Type])} in    
-    let ftype = bind_type context ("wasm_unique_name_" ^ string_of_int counter) type_ in
+    let name_ = "wasm_unique_name_" ^ string_of_int counter in
+    let type_:Ast.type_ = {name = name_; details = FuncType (!fn_args, [I32Type])} in    
+    ignore(bind_type context name_ type_);
     let w = !wasm_module in
     wasm_module := Ast.{w with types = w.types @ [type_]};
     expression_list @
     load_action @
-    [CallIndirect ftype]
+    [CallIndirect name_]
     )
   | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
@@ -1088,46 +1090,46 @@ let begin_assembly () = (
   let empty_type:Ast.type_ = {name = "empty_type"; details = Types.FuncType ([], [])} in
   let raise_i32_unit:Ast.type_ = {name = "raise_i32_ftype"; details = Types.FuncType ([Types.I32Type], [])} in
   let types = [ jsTryWithType; type_; empty_type; raise_i32_unit] in
-  let jsTryWithType_ = bind_type context "jsTryWithType" jsTryWithType in
-  let type__ftype = bind_type context "type_" type_ in
-  let empty_ftype = bind_type context "empty_type" empty_type in
-  let raise_i32_ftype = bind_type context "raise_i32_ftype" raise_i32_unit in
+  ignore(bind_type context "jsTryWithType" jsTryWithType);
+  ignore(bind_type context "type_" type_);
+  ignore(bind_type context "empty_type" empty_type);
+  ignore(bind_type context "raise_i32_ftype" raise_i32_unit);
 
   let imports = [
     {
       module_name = name "js";
       item_name = name "tryWith";
-      idesc = FuncImport jsTryWithType_
+      idesc = FuncImport "jsTryWithType"
     };
     {
       module_name = name "js";
       item_name = name "jsRaise_i32_i32";
-      idesc = FuncImport type__ftype
+      idesc = FuncImport "type_"
     };
     {
       module_name = name "js";
       item_name = name "jsRaise_i32_unit";
-      idesc = FuncImport raise_i32_ftype
+      idesc = FuncImport "raise_i32_ftype"
     };
     {
       module_name = name "js";
       item_name = name "caml_fresh_oo_id";
-      idesc = FuncImport type__ftype
+      idesc = FuncImport "type_"
     };
     {
       module_name = name "libasmrun";
       item_name = name "caml_alloc";
-      idesc = FuncImport type__ftype
+      idesc = FuncImport "type_"
     };
     {
       module_name = name "linking";
       item_name = name "camlCamlinternalFormatBasics__entry";
-      idesc = FuncImport empty_ftype
+      idesc = FuncImport "empty_type"
     };
     {
       module_name = name "linking";
       item_name = name "camlPervasives__entry";
-      idesc = FuncImport empty_ftype
+      idesc = FuncImport "empty_type"
     };
   ]
   in
