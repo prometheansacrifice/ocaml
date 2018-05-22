@@ -1233,13 +1233,13 @@ let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (
     let fun_body = emit_expr context fun_body in        
     let body = fun_body in
     let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
-    let ftype = bind_type context fun_name type_ in
+    ignore(bind_type context fun_name type_);
     let locals = ref []
     in
     VarMap.iter (fun _ (_, t) -> locals := !locals @ [t]) context.locals.l_map;
     let result = {
       name = fun_name;
-      ftype;
+      ftype = fun_name;
       locals = !locals;
       body;
     } in

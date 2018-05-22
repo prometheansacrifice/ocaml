@@ -549,7 +549,7 @@ let encode m =
       section 2 (vec import) ims (ims <> [])
 
     (* Function section *)
-    let func f = var f.ftype
+    let func f = var (find_type f.ftype)
 
     let func_section fs =
       section 3 (vec func) fs (fs <> [])

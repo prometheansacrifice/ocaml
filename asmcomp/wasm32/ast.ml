@@ -121,7 +121,7 @@ type global =
 type func =
 {
   name: string;
-  ftype : var;
+  ftype : string;
   locals : value_type list;
   body : instr list;
 }
