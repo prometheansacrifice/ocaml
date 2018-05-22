@@ -60,15 +60,14 @@ let wasm_module = ref {
 
 let empty () = {map = VarMap.empty; count = 0l}
 
-type types = {space : space; mutable list : type_ list}
-let empty_types () = {space = empty (); list = []}
 let empty_locals () = {l_map = VarMap.empty; l_count = 0l};
+
 type context =
-  { data: space; types : types; tables : space; memories : space;
+  { data: space; tables : space; memories : space;
     funcs : space; locals : local_space; globals : space; labels : int32 VarMap.t }
 
 let empty_context () =
-  { data = empty (); types = empty_types (); tables = empty (); memories = empty ();
+  { data = empty (); tables = empty (); memories = empty ();
     funcs = empty (); locals = empty_locals(); globals = empty ();
     labels = VarMap.empty }
 
@@ -80,7 +79,6 @@ let lookup category space x =
 let lookup_local category space x =
   VarMap.find x space.l_map
 
-(* let type_ (c : context) x = lookup "type" c.types.space x *)
 let data2 (c : context) x = lookup "data" c.data x
 let local (c : context) x = lookup_local "local" c.locals x
 let global (c : context) x = lookup "global" c.globals x
