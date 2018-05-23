@@ -22,17 +22,10 @@ open Values
 open Wasm_types
 
 (*
-  the basic webassembly constructs and functions are taken from the webassembly
-  spec implementation with some modifications:
-   - local_space added to keep info on the value_type of the local
-   - errors are now failwith <- TODO fixme
-
-   TODO: license!
+  
  *)
 
 module VarMap = Map.Make(String)
-
-type space = {mutable map : int32 VarMap.t; mutable count : int32}
 
 type local_space = {mutable l_map : (int32 * value_type) VarMap.t; mutable l_count : int32}
 
@@ -58,18 +51,13 @@ let wasm_module = ref {
   symbols = [];
 }
 
-let empty () = {map = VarMap.empty; count = 0l}
-
 let empty_locals () = {l_map = VarMap.empty; l_count = 0l};
 
 type context =
-  { tables : space; memories : space;
-    funcs : space; locals : local_space; labels : int32 VarMap.t }
+  { locals : local_space }
 
 let empty_context () =
-  { tables = empty (); memories = empty ();
-    funcs = empty (); locals = empty_locals();
-    labels = VarMap.empty }
+  { locals = empty_locals() }
 
 let block_stack : block_stack = Stack.create ()
 
@@ -141,56 +129,21 @@ let current_return_type = ref []
 
 let enter_func (c : context) = (
   current_return_type := [];
-  {c with labels = VarMap.empty; locals = empty_locals()}
+  {locals = empty_locals()}
 )
 
 (* custom implementation *)
 
 let unique_name_counter = ref 0
-let data_index = ref 0
 
 let name s =
   try Utf8.decode s with Utf8.Utf8 ->
     failwith "invalid UTF-8 encoding"
 
 let global_offset = ref 0
-
-let add_missing_memory_addresses () = (
-  let w = !wasm_module in
-  List.iter (fun (s:data_part segment) -> 
-    List.iter (fun d -> 
-      match d with 
-      | Symbol symbol -> (
-          let has_symbol = List.find_opt (fun (x:data_part segment) ->
-            x.init.name = symbol
-          ) w.data 
-          in 
-          match has_symbol with 
-          | Some _ -> ()
-          | _ -> (    
-            let w = !wasm_module in       
-            wasm_module := {w with symbols = w.symbols @ 
-              [{
-                name = symbol;
-                details = Data ({
-                    index = (-1l);
-                    relocation_offset = 0l;
-                    size = 0l;
-                    offset = 0l
-                })
-              }]
-            };
-            data_index := !data_index + 1;           
-          )
-        )
-      | _ -> ()
-    ) s.init.detail    
-  ) w.data
-)
   
 
 let end_assembly () = (  
-  add_missing_memory_addresses (); (* Move to Encode *)
   create_symbol_table (); (* Move to Encode *)
   Encode.encode !wasm_module;  
   wasm_module := {
@@ -212,8 +165,7 @@ let end_assembly () = (
     symbols = []; (* Move to Encode *)
   };
   context := empty_context ();
-  current_return_type := [];
-  data_index := 0;
+  current_return_type := [];  
 )
 
 let oper_result_type = function
@@ -968,7 +920,6 @@ let begin_assembly () = (
   ]
   in
   
-  data_index := 2;
   let w = !wasm_module in
   wasm_module := {w with symbols = w.symbols @ [{
     name = "caml_globals_inited";
@@ -1238,14 +1189,13 @@ and data dl = (
         wasm_module := {w with symbols = w.symbols @ [{
           name = !symbol_name;
           details = Data ({
-              index = Int32.of_int !data_index;
+              index = 0l;
               relocation_offset = 0l;
               size =  Int32.of_int !offset;
               offset = Int32.of_int start_offset
           })
         }]};
-        data_index := !data_index + 1;
-
+        
         let w = !wasm_module in
 
         global_offset := !global_offset + !offset;

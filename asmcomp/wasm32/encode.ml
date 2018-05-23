@@ -83,6 +83,40 @@ let encode m =
   )
   in
   let m = turn_missing_functions_to_imports () in
+  let add_missing_memory_addresses () = Ast.(
+    let result = ref m in
+    List.iter (fun (s:data_part segment) -> 
+      List.iter (fun d -> 
+        match d with 
+        | Symbol symbol -> (
+            let has_symbol = List.find_opt (fun (x:data_part segment) ->
+              x.init.name = symbol
+            ) m.data 
+            in 
+            match has_symbol with 
+            | Some _ -> ()
+            | _ -> (    
+              let w = !result in       
+              result := {w with symbols = w.symbols @ 
+                [{
+                  name = symbol;
+                  details = Data ({
+                      index = (-1l);
+                      relocation_offset = 0l;
+                      size = 0l;
+                      offset = 0l
+                  })
+                }]
+              };              
+            )
+          )
+        | _ -> ()
+      ) s.init.detail    
+    ) m.data;
+    !result
+  )
+  in
+  let m = add_missing_memory_addresses () in
 
   let module E = struct
     (* Generic values *)
@@ -250,16 +284,14 @@ let encode m =
         find_func m.funcs (Int32.of_int (List.length m.imports))
       else 
         result
-
-(* 
-    let calc_expected_value reloc = 
-      match reloc with
-        | R_WEBASSEMBLY_FUNCTION_INDEX_LEB of int32 * string
-        | R_WEBASSEMBLY_MEMORY_ADDR_LEB of int32 * Ast.var  
-        | R_WEBASSEMBLY_TYPE_INDEX_LEB of int32 * Ast.var
-        | R_WEBASSEMBLY_GLOBAL_INDEX_LEB of int32 * Ast.var
-        | R_WEBASSEMBLY_MEMORY_ADDR_SLEB of int32 * string
-        | R_WEBASSEMBLY_TABLE_INDEX_SLEB  of int32 * string *)
+  
+    let data_index symbol = 
+      let rec iter_data (data: data_part segment list) count = 
+        match data with
+        | {init = {name}} :: remaining when name = symbol -> count
+        | _ :: remaining -> iter_data remaining (Int32.add count 1l) 
+        | [] -> (-1l)
+      in iter_data m.data 0l
 
     let find_type x = 
       let rec iter result = function
@@ -852,7 +884,7 @@ let encode m =
         | Data d ->
           string sym.name;
           if exists then (
-            vu32 d.index;
+            vu32 (data_index sym.name);
             vu32 d.relocation_offset;
             vu32 d.size
           )
