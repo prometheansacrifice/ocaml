@@ -49,6 +49,41 @@ let encode m =
 
   let data_relocations:data_relocation list ref = ref [] in
 
+  let name s =
+    try Utf8.decode s with Utf8.Utf8 ->
+      failwith "invalid UTF-8 encoding"
+  in
+  let turn_missing_functions_to_imports () = Ast.( 
+    let missing_imports = List.filter (fun symbol ->
+      match symbol.details with 
+      | Function
+      | Import  -> (
+        let key = symbol.name in
+        not (List.exists (fun (i:Ast.import) -> (Ast.string_of_name i.item_name) = key) m.imports)
+        &&
+        not (List.exists (fun (f:Ast.func) -> f.name = key) m.funcs)
+      )
+      | _ -> false    
+    ) m.symbols in  
+    let imports = ref [] in
+    let types = ref [] in
+    List.iter (fun symbol ->
+      let key = symbol.name in
+      let name_ = ("empty_type_" ^ key) in
+      let empty_type:Ast.type_ = {name = name_; details = Types.FuncType ([], [])} in
+      types := !types @ [empty_type];
+      imports := !imports @ [{
+        module_name = name "libasmrun";
+        item_name = name key;
+        idesc = FuncImport name_
+      }];
+    ) missing_imports;
+    {m with imports = m.imports @ !imports;
+            types = m.types @ !types}
+  )
+  in
+  let m = turn_missing_functions_to_imports () in
+
   let module E = struct
     (* Generic values *)
 

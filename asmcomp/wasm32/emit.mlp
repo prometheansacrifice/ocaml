@@ -64,11 +64,11 @@ let empty_locals () = {l_map = VarMap.empty; l_count = 0l};
 
 type context =
   { tables : space; memories : space;
-    funcs : space; locals : local_space; globals : space; labels : int32 VarMap.t }
+    funcs : space; locals : local_space; labels : int32 VarMap.t }
 
 let empty_context () =
   { tables = empty (); memories = empty ();
-    funcs = empty (); locals = empty_locals(); globals = empty ();
+    funcs = empty (); locals = empty_locals();
     labels = VarMap.empty }
 
 let block_stack : block_stack = Stack.create ()
@@ -101,7 +101,7 @@ let func_symbol_exists symbol =
     | _ -> false
   ) w.symbols
 
-let create_func_symbol name = 
+let create_func_symbol name = (* TODO: move to encode *)
   let w = !wasm_module in
   wasm_module := {w with 
     symbols = w.symbols @ [{
@@ -110,7 +110,7 @@ let create_func_symbol name =
     }]
   }
 
-let create_import_symbol name = 
+let create_import_symbol name = (* TODO: move to encode *)
   let w = !wasm_module in
   wasm_module := {w with 
     symbols = w.symbols @ [{
@@ -119,7 +119,7 @@ let create_import_symbol name =
     }]
   }
 
-let create_symbol_table () = (
+let create_symbol_table () = ( (* TODO: move to encode *)
   let w = !wasm_module in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
@@ -152,38 +152,6 @@ let data_index = ref 0
 let name s =
   try Utf8.decode s with Utf8.Utf8 ->
     failwith "invalid UTF-8 encoding"
-
-let turn_missing_functions_to_imports () = ( (* TODO: move to encode *)
-  let w = !wasm_module in
-  let missing_imports = List.filter Ast.(fun symbol ->
-    match symbol.details with 
-    | Function
-    | Import  -> (
-      let key = symbol.name in
-      not (List.exists (fun (i:Ast.import) -> (Ast.string_of_name i.item_name) = key) w.imports)
-      &&
-      not (List.exists (fun (f:Ast.func) -> f.name = key) w.funcs)
-    )
-    | _ -> false    
-  ) w.symbols in  
-  let imports = ref [] in
-  List.iter (fun symbol ->
-    let key = symbol.name in
-    (* create a temp empty type... *)
-    (* TODO: refactor... *)
-    let name_ = ("empty_type_" ^ key) in
-    let empty_type:Ast.type_ = {name = name_; details = Types.FuncType ([], [])} in
-    let w = !wasm_module in
-    wasm_module := Ast.{w with types = w.types @ [empty_type]};
-    imports := !imports @ [{
-      module_name = name "libasmrun";
-      item_name = name key;
-      idesc = FuncImport name_
-    }];
-  ) missing_imports;
-  let w = !wasm_module in
-  wasm_module := Ast.{w with imports = w.imports @ !imports}
-)
 
 let global_offset = ref 0
 
@@ -222,7 +190,6 @@ let add_missing_memory_addresses () = (
   
 
 let end_assembly () = (  
-  turn_missing_functions_to_imports (); (* Move to Encode *)
   add_missing_memory_addresses (); (* Move to Encode *)
   create_symbol_table (); (* Move to Encode *)
   Encode.encode !wasm_module;  
@@ -304,6 +271,8 @@ let convert_result = function
 
 
 (*
+  FIXME: Exceptions are completely broken at the moment!
+
   exceptions are tricky for now as wasm doesn't support it.
 
   Right now it works as follows:
@@ -345,7 +314,7 @@ let blockheader_details header =
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
 
-let size_expr exp =
+let size_expr exp = (* FIXME: in some cases constants are used which is incorrect *)
   let rec size = function
       Cconst_int _ | Cconst_natint _ -> Arch.size_int
     | Cconst_symbol _ -> Arch.size_addr
