@@ -73,27 +73,13 @@ let empty_context () =
 
 let block_stack : block_stack = Stack.create ()
 
-let lookup category space x =
-  VarMap.find x space.map
-
 let lookup_local category space x =
   VarMap.find x space.l_map
 
 
 let local (c : context) x = lookup_local "local" c.locals x
-let global (c : context) x = lookup "global" c.globals x
 
 let context = ref (empty_context ())
-
-let bind category space x =
-  if VarMap.mem x space.map then
-    failwith ("Duplicate:" ^ x);
-  let i = space.count in
-  space.map <- VarMap.add x space.count space.map;
-  space.count <- Int32.add space.count 1l;
-  if space.count = 0l then
-    failwith "Too many bindings";
-  i
 
 let bind_local category (space:local_space) x value_type =
   if VarMap.mem x space.l_map then
@@ -150,8 +136,6 @@ let create_symbol_table () = (
 )
 
 let bind_local (c : context) name value_type = bind_local "local" c.locals name value_type
-
-let bind_global (c : context) x = bind "global" c.globals x
 
 let current_return_type = ref []
 
@@ -705,11 +689,6 @@ and emit_expr (context:context) (expression:expression) =
       current_return_type := [t];
       [Call symbol]
     with
-    | _ -> try
-      current_return_type := [I32Type];
-      ignore(global context symbol);
-      [Call symbol]
-    with
     | _ -> 
       current_return_type := [I32Type];
       [
@@ -990,7 +969,6 @@ and emit_expr (context:context) (expression:expression) =
 
 
 let begin_assembly () = (
-  let context = !context in
   let globals = [{
     name = "global_offset";
     gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
@@ -1003,9 +981,6 @@ let begin_assembly () = (
   }
   ]
   in
-  ignore(bind_global context "global_offset");
-  ignore(bind_global context "global_memory_offset");
-
   let data = [{
     index =  0l;
     offset = [Const (I32 0l)];
