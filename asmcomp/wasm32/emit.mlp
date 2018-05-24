@@ -76,7 +76,6 @@ let block_stack : block_stack = Stack.create ()
 let lookup_local space x =
   VarMap.find x space.l_map
 
-
 let local (c : context) x = lookup_local c.locals x
 
 let context = ref (empty_context ())
@@ -251,38 +250,6 @@ let blockheader_details header =
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
 
-let size_expr exp = (* FIXME: in some cases constants are used which is incorrect *)
-  let rec size = function
-      Cconst_int _ | Cconst_natint _ -> Arch.size_int
-    | Cconst_symbol _ -> Arch.size_addr
-    | Cconst_float _ -> Arch.size_float
-    | Cblockheader _ -> Arch.size_int
-    | Cvar _ -> 4
-      (* failwith "todo" *)
-        (* begin try
-          Tbl.find id localenv
-        with Not_found ->
-        try
-          let regs = env_find id env in
-          size_machtype (Array.map (fun r -> r.typ) regs)
-        with Not_found ->
-          fatal_error("Selection.size_expr: unbound var " ^
-                      Ident.unique_name id)
-        end *)
-    | Ctuple el ->
-        List.fold_right (fun e sz -> size e + sz) el 0
-    | Cop(op, _, _) ->
-        Cmm.size_machtype(oper_result_type op)
-    | Clet _ ->
-        4
-        (* failwith "todo 2" *)
-        (* size (Tbl.add id (size localenv arg) localenv) body *)
-    | Csequence (_, e2) ->
-        size e2
-    | _ -> 4
-        (* failwith "Selection.size_expr" *)
-  in size exp 
-
 
 let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
@@ -341,7 +308,7 @@ let rec to_operations context (expression_list:expression list) operation =
         | [F32Type] -> [Store {ty = Types.F32Type; align = 0; offset = 0l; sz = None}]
         | _ -> print_endline "Not a proper solution..."; [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
         in
-        position := !position + size_expr f;
+        position := !position + Nativeint.to_int word_size;
         result
       ) [] expression_list
       in      
@@ -354,7 +321,7 @@ let rec to_operations context (expression_list:expression list) operation =
       calls
       @
       [GetLocal local_; (* return the value after the OCaml block header *)
-       Const (I32 4l);
+       Const (I32 4l); (* FIX me: should not need to add 4 *)
        Binary (I32 I32Op.Add)
       ]
       in 
@@ -599,7 +566,7 @@ and emit_expr (context:context) (expression:expression) =
       current_return_type := [I32Type];
       [
         DataSymbol symbol;
-        Const (I32 4l);
+        Const (I32 4l); (* FIX me: should not need to add 4 *)
         Binary (I32 I32Op.Add)
       ])
     
