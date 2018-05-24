@@ -12,9 +12,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
-(* From C-- to webassembly bytecode *)
-
-[@@@ocaml.warning "-20-27"]
+(* From C-- to WebAssembly object file AST *)
 
 open Cmm
 open Ast
@@ -22,8 +20,22 @@ open Values
 open Wasm_types
 
 (*
+  WebAssembly (wasm) is a secure stackmachine. It guarantees security by using 
+  type safety for all variables, limiting memory access, and having no access 
+  to the stack. 
   
- *)
+  It's possible to hack around not having stack access, but it's probably wiser 
+  to wait for the right additions in wasm to appear. Luckily this already being 
+  worked on:
+  - https://github.com/WebAssembly/exception-handling/blob/master/proposals/Level-1.md
+  - https://github.com/WebAssembly/gc/pull/34 
+  - https://github.com/WebAssembly/tail-call/blob/master/proposals/tail-call/Overview.md 
+
+  The code is compiled to the wasm object file format, which is defined here: 
+  https://github.com/WebAssembly/tool-conventions/blob/master/Linking.md. This
+  is required to be able to use LLVM's LLD to link the generated wasm binary 
+  with other code that's compiled to wasm (from clang for example).
+*)
 
 module VarMap = Map.Make(String)
 
@@ -61,15 +73,15 @@ let empty_context () =
 
 let block_stack : block_stack = Stack.create ()
 
-let lookup_local category space x =
+let lookup_local space x =
   VarMap.find x space.l_map
 
 
-let local (c : context) x = lookup_local "local" c.locals x
+let local (c : context) x = lookup_local c.locals x
 
 let context = ref (empty_context ())
 
-let bind_local category (space:local_space) x value_type =
+let bind_local (space:local_space) x value_type =
   if VarMap.mem x space.l_map then
     failwith ("Duplicate:" ^ x);
   let i = space.l_count in
@@ -123,16 +135,14 @@ let create_symbol_table () = ( (* TODO: move to encode *)
   }
 )
 
-let bind_local (c : context) name value_type = bind_local "local" c.locals name value_type
+let bind_local (c : context) name value_type = bind_local c.locals name value_type
 
 let current_return_type = ref []
 
-let enter_func (c : context) = (
+let enter_func () = (
   current_return_type := [];
   {locals = empty_locals()}
 )
-
-(* custom implementation *)
 
 let unique_name_counter = ref 0
 
@@ -141,7 +151,6 @@ let name s =
     failwith "invalid UTF-8 encoding"
 
 let global_offset = ref 0
-  
 
 let end_assembly () = (  
   create_symbol_table (); (* Move to Encode *)
@@ -198,30 +207,6 @@ let convert_result = function
    | [|Int|] -> [I32Type]
    | _ -> assert false
 
-(* let oper_result_type = function
-  | Capply _ -> [I32Type]
-  | Cextcall _ -> [I32Type]
-  | Cload (c, _) ->
-    begin match c with
-    | Word_val -> [I32Type]
-    | Single | Double | Double_u -> [F32Type]
-    | _ -> [I32Type]
-    end
-  | Calloc -> [I32Type]
-  | Cstore _ -> []
-  | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi |
-  Cand | Cor | Cxor | Clsl | Clsr | Casr |
-  Ccmpi _ | Ccmpa _ | Ccmpf _ -> [I32Type]
-  | Caddv -> [I32Type]
-  | Cadda -> [I32Type]
-  | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> [F32Type]
-  | Cfloatofint -> [F32Type]
-  | Cintoffloat -> [I32Type]
-  | Craise _ -> [I32Type]
-  | Ccheckbound -> []
- *)
-
-
 (*
   FIXME: Exceptions are completely broken at the moment!
 
@@ -247,7 +232,7 @@ let exception_fns:((exception_fn list) ref) = ref []
 let create_exception_function ?is_handler:(is_handler = false) ?exn_name (context:context) mem_pointer (name: string) (instr:expression) = (
     let fn_id = (-1l) in
     let (st:((string * value_type) list) ref) = ref [] in
-    VarMap.iter (fun key (value, t) -> st := !st @ [(key, t)]) context.locals.l_map;
+    VarMap.iter (fun key (_, t) -> st := !st @ [(key, t)]) context.locals.l_map;
     let e_fn = {
       name = name;
       expression = instr;
@@ -272,7 +257,7 @@ let size_expr exp = (* FIXME: in some cases constants are used which is incorrec
     | Cconst_symbol _ -> Arch.size_addr
     | Cconst_float _ -> Arch.size_float
     | Cblockheader _ -> Arch.size_int
-    | Cvar id -> 4
+    | Cvar _ -> 4
       (* failwith "todo" *)
         (* begin try
           Tbl.find id localenv
@@ -288,11 +273,11 @@ let size_expr exp = (* FIXME: in some cases constants are used which is incorrec
         List.fold_right (fun e sz -> size e + sz) el 0
     | Cop(op, _, _) ->
         Cmm.size_machtype(oper_result_type op)
-    | Clet(id, arg, body) ->
+    | Clet _ ->
         4
         (* failwith "todo 2" *)
         (* size (Tbl.add id (size localenv arg) localenv) body *)
-    | Csequence(_e1, e2) ->
+    | Csequence (_, e2) ->
         size e2
     | _ -> 4
         (* failwith "Selection.size_expr" *)
@@ -302,7 +287,7 @@ let size_expr exp = (* FIXME: in some cases constants are used which is incorrec
 let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
-  | Cextcall (symbol, mt, b, l), _ -> (
+  | Cextcall (symbol, _, _, _), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       (if not (func_symbol_exists symbol) then 
@@ -311,7 +296,7 @@ let rec to_operations context (expression_list:expression list) operation =
       else
         [Call symbol])
     )
-  | Cload (memory_chunk, mutable_flag), _ -> (
+  | Cload (memory_chunk, _), _ -> (
       let align = 0 in
       let offset = 0l in
       let instr = Ast.Types.(match memory_chunk with
@@ -334,7 +319,7 @@ let rec to_operations context (expression_list:expression list) operation =
       expression_list @ instr
     )
   | Calloc, Cblockheader (header, _) :: _ -> (
-      let (word_size, tag) = blockheader_details header in
+      let (word_size, _) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
@@ -375,7 +360,7 @@ let rec to_operations context (expression_list:expression list) operation =
       in 
       result
     )
-  | Cstore (memory_chunk, initialization_or_assignment), _ ->
+  | Cstore (memory_chunk, _), _ ->
     let align = 0 in
     let offset = 0l in
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
@@ -550,13 +535,13 @@ let rec to_operations context (expression_list:expression list) operation =
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Lt)]
-  | Ccmpf CFnlt, [fst; snd] ->
+  | Ccmpf CFnlt, _ ->
     failwith "Not supported yet"
-  | Ccmpf CFngt, [fst; snd] ->
+  | Ccmpf CFngt, _ ->
     failwith "Not supported yet"
-  | Ccmpf CFnle, [fst; snd] ->
+  | Ccmpf CFnle, _ ->
     failwith "Not supported yet"
-  | Ccmpf CFnge, [fst; snd] ->
+  | Ccmpf CFnge, _ ->
     failwith "Not supported yet"
   | Ccmpf CFle, [fst; snd] ->
    (emit_expr context fst) @
@@ -606,7 +591,7 @@ and emit_expr (context:context) (expression:expression) =
   | Cconst_symbol symbol ->
     (
     try
-      let (res, t) = local context symbol in
+      let (_, t) = local context symbol in
       current_return_type := [t];
       [Call symbol]
     with
@@ -661,7 +646,7 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Ctuple el ->
     List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] el
-  | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (
+  | Cop (Capply _, (Cop (Cload _ as op, el, _))::tl, _) -> (
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
@@ -737,7 +722,7 @@ and emit_expr (context:context) (expression:expression) =
     ignore(Stack.pop block_stack);
     let expr = expr @ [Br 0l] in
     [Loop ([], expr)]
-  | Ccatch  (rf, with_, body) -> (     
+  | Ccatch  (_, with_, body) -> (     
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -767,7 +752,7 @@ and emit_expr (context:context) (expression:expression) =
         );
         fix_blocks depth (result @ [Block ([], fix_blocks (depth + 1) [] el)]) remaining
       )
-    | If (crt, t, e) :: remaining -> (
+    | If (_, t, e) :: remaining -> (
         fix_blocks depth (result @ [If ([], fix_blocks (depth + 1) [] t, fix_blocks (depth + 1) [] e)]) remaining
       )
     | Loop ([], e) :: remaining -> (
@@ -815,7 +800,7 @@ and emit_expr (context:context) (expression:expression) =
   | Ctrywith  (body, exn, handler) ->
     (
       let memory_alloc_size = ref 0 in
-      VarMap.iter (fun key (value, t) ->
+      VarMap.iter (fun _ (_, t) ->
         match t with
         | I32Type
         | F32Type -> memory_alloc_size := !memory_alloc_size + 4
@@ -836,7 +821,7 @@ and emit_expr (context:context) (expression:expression) =
       let set_blocks = ref [] in
       let get_blocks = ref [] in
       let memory_block_position = ref 4 in (* first block is reserved for the return value *)
-      VarMap.iter (fun key (value, t) ->
+      VarMap.iter (fun _ (value, t) ->
         set_blocks := !set_blocks @ [
           GetLocal alloc_memory_pointer;
           Const (I32 (I32.of_int_s !memory_block_position));
@@ -941,7 +926,7 @@ let begin_assembly () = (
   };
   ]};
 
-  global_offset := !global_offset + 5;
+  global_offset := !global_offset + 5; (* TODO: make this a bit smarter (eg. count the previous sizes) *)
 
   let jsTryWithType:Ast.type_ = {name = "jsTryWithType"; details = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], [])} in
   let type_:Ast.type_ = {name = "type_"; details = Types.FuncType ([Types.I32Type], [Types.I32Type])} in
@@ -1057,10 +1042,9 @@ let begin_assembly () = (
 
 ) *)
 
-let fundecl ({fun_name; fun_args; fun_body; fun_codegen_options; fun_dbg}) = (    
+let fundecl ({fun_name; fun_args; fun_body; _}) = (    
     print_endline ("Function: " ^ fun_name);
-    let context = !context in
-    let context = enter_func context in
+    let context = enter_func () in
     let args = ref [] in
     List.iter (fun (ident, mt) ->
       let value_type = match mt with
@@ -1133,7 +1117,7 @@ and data dl = (
         let offset = ref 0 in        
         let symbol_name = ref "" in
         List.iter (function
-        | Cglobal_symbol s -> ()
+        | Cglobal_symbol _ -> ()
         | Csymbol_address symbol -> (
             
             let add =
@@ -1178,10 +1162,10 @@ and data dl = (
             offset := !offset + (String.length s);
             ()
             )
-        | Cskip i ->
+        | Cskip _ ->
             (* TODO *)
             ()
-        | Calign i -> () (* seems not to be produced anyway in the OCaml codebase *)
+        | Calign _ -> () (* seems not to be produced anyway in the OCaml codebase *)
         ) dl;
 
         (* print_endline ("Offset for " ^ !symbol_name ^ " = " ^ string_of_int start_offset); *)
