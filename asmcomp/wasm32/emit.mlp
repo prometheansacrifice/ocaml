@@ -250,7 +250,6 @@ let blockheader_details header =
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
 
-
 let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
@@ -961,32 +960,12 @@ let begin_assembly () = (
   ]
   in
   let w = !wasm_module in
-  let no_of_imports = List.length (List.filter (fun f -> match f.details with | Function | Import -> true | _ -> false) w.symbols) in
-
-  let tables = [{ttype = TableType ({min = Int32.of_int no_of_imports; max = Some (Int32.of_int no_of_imports)}, AnyFuncType)}]
-  in
-  let rec add_elems result i = 
-    match i with 
-    | i when i > 0 -> 
-      add_elems (result @ [
-      {
-        index = 0l;
-        offset=[Const (I32 (I32.of_int_s i))];
-        init=[(I32.of_int_s i)]
-      }]) (i - 1)
-    | i when i = 0 -> result
-    | _ -> assert false
-  in
-  let elems = add_elems [] no_of_imports in
-  let w = !wasm_module in
   wasm_module := Ast.{w with
     globals = globals;
     types = types;
     data = data;
     imports = imports;
     exports = exports;
-    tables = tables;
-    elems = elems
   };
 )
 
@@ -1054,27 +1033,8 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     let w = !wasm_module in
     wasm_module := Ast.{w with funcs = w.funcs @ [result];
                                types = w.types @ [type_];
-                               exports = w.exports @ [export]};
-
-    let w = !wasm_module in
-    let table = List.hd w.tables in
-    let tt = table.ttype in
-    Types.(match tt with
-    | TableType (limits, _) -> (
-      let max = match limits.max with
-      | Some s -> s
-      | None -> 0l
-      in
-      wasm_module := Ast.{w with
-        tables = [{ttype = TableType ({min = (Int32.add max 1l); max = Some (Int32.add max 1l)}, AnyFuncType)}];
-        elems = w.elems @ [{
-          index = 0l;
-          offset=[Const (I32 (I32.of_int_s (List.length w.elems)))];
-          init=[I32.of_int_s (List.length w.elems)]
-        }]
-      }
-    ));
-    ()
+                               exports = w.exports @ [export];
+                               };
 )
 and data dl = (
     if List.length dl > 0 then (
@@ -1129,9 +1089,7 @@ and data dl = (
             offset := !offset + (String.length s);
             ()
             )
-        | Cskip _ ->
-            (* TODO *)
-            ()
+        | Cskip _ -> ()
         | Calign _ -> () (* seems not to be produced anyway in the OCaml codebase *)
         ) dl;
 
