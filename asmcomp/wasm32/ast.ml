@@ -99,7 +99,6 @@ type instr =
   | GrowMemory                        (* grow linear memory *)
   | Const of literal                  (* constant *)
   | DataSymbol of string
-  | FunctionSymbol of string
   | Test of testop                    (* numeric test *)
   | Compare of relop                  (* numeric comparison *)
   | Unary of unop                     (* unary numeric operator *)

@@ -84,6 +84,9 @@ let encode m =
   in
   let m = turn_missing_functions_to_imports () in
   let add_missing_memory_addresses () = Ast.(
+    
+
+
     let result = ref m in
     List.iter (fun (s:data_part segment) -> 
       List.iter (fun d -> 
@@ -426,19 +429,11 @@ let encode m =
         op 0x41;
         let p = pos s in
         List.iteri (fun symbol_index s -> match s.details with
-        | Import
-        | Function when s.name = symbol ->
-            code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-            vs32_fixed (func_index symbol)
         | Data { offset } when s.name = symbol ->
             code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
             vs32_fixed offset
-          | _ -> ()  
+        | _ -> ()  
         ) m.symbols
-      | FunctionSymbol symbol ->
-        let p = pos s in 
-        code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];
-        vs32_fixed (func_index symbol)
       | Const (I32 c) -> op 0x41; vs32 c
       | Const (I64 c) -> op 0x42; vs64 c
       | Const (F32 c) -> op 0x43; f32 c
