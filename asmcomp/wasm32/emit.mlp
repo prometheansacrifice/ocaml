@@ -302,10 +302,7 @@ let rec to_operations context (expression_list:expression list) operation =
         | Cconst_symbol symbol -> [DataSymbol symbol]
         | _ as e -> emit_expr context e)
         @
-        match !current_return_type with 
-        | [I32Type] -> [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}]
-        | [F32Type] -> [Store {ty = Types.F32Type; align = 0; offset = 0l; sz = None}]
-        | _ -> print_endline "Not a proper solution..."; [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])
+        [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])        
         in
         position := !position + Nativeint.to_int word_size;
         result
@@ -989,7 +986,6 @@ let begin_assembly () = (
 ) *)
 
 let fundecl ({fun_name; fun_args; fun_body; _}) = (    
-    print_endline ("Function: " ^ fun_name);
     let context = enter_func () in
     let args = ref [] in
     List.iter (fun (ident, mt) ->
