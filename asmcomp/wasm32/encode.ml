@@ -53,6 +53,39 @@ let encode m =
     try Utf8.decode s with Utf8.Utf8 ->
       failwith "invalid UTF-8 encoding"
   in
+  (* let find_imports () = Ast.(
+    let symbols = ref [] in
+    let rec handle_expr instr =
+      match instr with       
+      | Call symbol :: remaining ->        
+        (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
+            not (List.exists (fun s -> s.name = symbol) !symbols)  then 
+          print_endline ("Create symbol for:" ^ symbol);
+          symbols := !symbols @ [{
+            name = symbol;
+            details = Import;
+          }]
+        );
+        handle_expr remaining
+      | Block (_, instr) :: remaining -> 
+        handle_expr instr;
+        handle_expr remaining;
+      | Loop (_, instr) :: remaining ->
+        handle_expr instr;
+        handle_expr remaining;
+      | If (_, e1 , e2) :: remaining ->
+        handle_expr e1;
+        handle_expr e2;
+        handle_expr remaining;
+      | _ :: remaining -> 
+        handle_expr remaining;
+      | [] -> ()
+    in 
+    List.iter (fun (f:Ast.func) -> handle_expr f.body) m.funcs;
+    {m with symbols = m.symbols @ !symbols}
+  )
+  in
+  let m = find_imports () in *)
   let turn_missing_functions_to_imports () = Ast.( 
     let missing_imports = List.filter (fun symbol ->
       match symbol.details with 

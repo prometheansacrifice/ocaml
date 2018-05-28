@@ -1037,13 +1037,19 @@ and data dl = (
         (* let data_id = ref 0l in *)
         let offset = ref 0 in        
         let symbol_name = ref "" in
+         let is_closure =
+              match List.hd dl with
+              | Cint i when (((Nativeint.to_int i) land 255) == 247) -> true
+              | _ -> false
+        in
         List.iter (function
         | Cglobal_symbol _ -> ()
-        | Csymbol_address symbol -> (
-            
+        | Csymbol_address symbol -> (            
             let add =
-              if (func_symbol_exists symbol) then 
-                [FunctionLoc symbol]
+              if is_closure then 
+                ((if not (func_symbol_exists symbol) then 
+                  create_import_symbol symbol);
+                [FunctionLoc symbol])
               else             
                 [Symbol symbol]            
             in
