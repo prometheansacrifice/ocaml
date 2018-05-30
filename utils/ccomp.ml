@@ -109,6 +109,7 @@ let compile_file ?output ?(opt="") name =
   exit
 
 let macos_create_empty_archive ~quoted_archive =
+
   let result =
     command (Printf.sprintf "%s rc %s /dev/null" Config.ar quoted_archive)
   in
@@ -122,6 +123,7 @@ let macos_create_empty_archive ~quoted_archive =
       command (Printf.sprintf "%s d %s /dev/null" Config.ar quoted_archive)
 
 let create_archive archive file_list =
+  print_endline ("create archive:" ^ archive);
   Misc.remove_file archive;
   let quoted_archive = Filename.quote archive in
   match Config.ccomp_type with
@@ -137,10 +139,10 @@ let create_archive archive file_list =
       in
       if is_macosx && file_list = [] then  (* PR#6550 *)
         macos_create_empty_archive ~quoted_archive
-      else
+      else        
         let r1 =
-          command(Printf.sprintf "%s rc %s %s"
-                  Config.ar quoted_archive (quote_files file_list)) in
+          command(Printf.sprintf "%s -o %s %s"
+                  "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --verbose" quoted_archive (quote_files file_list)) in
         if r1 <> 0 || String.length Config.ranlib = 0
         then r1
         else command(Config.ranlib ^ " " ^ quoted_archive)

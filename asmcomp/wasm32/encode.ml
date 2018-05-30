@@ -89,8 +89,8 @@ let encode m =
   let turn_missing_functions_to_imports () = Ast.( 
     let missing_imports = List.filter (fun symbol ->
       match symbol.details with 
-      | Function
-      | Import  -> (
+      | Function _
+      | Import _ -> (
         let key = symbol.name in
         not (List.exists (fun (i:Ast.import) -> (Ast.string_of_name i.item_name) = key) m.imports)
         &&
@@ -318,10 +318,10 @@ let encode m =
     let func_symbol_index symbol = 
       let rec f symbol symbols result = 
         match symbols with 
-        | {name; details = Function} :: remaining
-        | {name; details = Import} :: remaining when name = symbol -> result        
-        | {details = Import} :: remaining -> f symbol remaining (Int32.add result 1l)
-        | {details = Function} :: remaining -> f symbol remaining (Int32.add result 1l) 
+        | {name; details = Function _} :: remaining
+        | {name; details = Import _} :: remaining when name = symbol -> result        
+        | {details = Import _} :: remaining -> f symbol remaining (Int32.add result 1l)
+        | {details = Function _} :: remaining -> f symbol remaining (Int32.add result 1l) 
         | _ :: remaining -> f symbol remaining (Int32.add result 1l)
         | [] -> assert false
       in
@@ -813,8 +813,8 @@ let encode m =
         | R_WEBASSEMBLY_TABLE_INDEX_SLEB (offset, symbol_)
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> (
           List.iteri (fun symbol_index s -> match s.details with
-          | Import
-          | Function when s.name = symbol_ -> 
+          | Import _
+          | Function _ when s.name = symbol_ -> 
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
             vu32 (Int32.of_int symbol_index); 
@@ -893,23 +893,23 @@ let encode m =
         written_symbols := !written_symbols @ [sym.name];
         
         (match sym.details with
-        | Import
-        | Function -> vu32 0l
+        | Import _
+        | Function _ -> vu32 0l
         | Data _ ->  vu32 1l
         | Global _ -> vu32 2l
         );
 
         let flags = 
          ref (match sym.details with
-            | Import -> 1l
-            | Function -> 1l
+            | Import _ -> 1l
+            | Function _ -> 1l
             | Data _ ->  1l
             | Global _ -> 2l (* why is this 2... *)
             )
         in
         let exists = (match sym.details with
-        | Import -> false
-        | Function -> 
+        | Import _ -> false
+        | Function _ -> 
           (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
             (* List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs             *)
             failwith ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));            
@@ -929,10 +929,11 @@ let encode m =
         | Global f -> 
           vu32 f.index;
           string sym.name;
-        | Function ->
+        | Function _ ->
+          print_endline ("creating a symbol for: " ^ sym.name ^ " = " ^ Int32.to_string !flags);
           vu32 (func_index sym.name);
           string sym.name;
-        | Import ->
+        | Import _ ->
           vu32 (func_index sym.name);
         | Data d ->
           string sym.name;
@@ -984,7 +985,7 @@ let encode m =
 
       List.iteri(fun i f ->
         match f.details with
-        | Function when f.name = "_start" ->  (
+        | Function _ when f.name = "_start" ->  (
           u8 6; (* WASM_INIT_FUNCS *)
           let g = gap32 () in
           let p = pos s in

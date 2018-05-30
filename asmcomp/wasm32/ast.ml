@@ -208,8 +208,8 @@ type sym_info_data = {
 }
 
 type sym_info_details =
-  | Function
-  | Import
+  | Function of Cmm.machtype
+  | Import of Cmm.machtype
   | Global of sym_info_function
   | Data of sym_info_data
 

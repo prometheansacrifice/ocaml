@@ -95,26 +95,26 @@ let func_symbol_exists symbol =
   List.exists (fun f -> 
     let name = f.name in
     match f.details with
-    | Import when name = symbol -> true
-    | Function when name = symbol -> true        
+    | Import _ when name = symbol -> true
+    | Function _ when name = symbol -> true        
     | _ -> false
   ) w.symbols
 
-let create_func_symbol name = (* TODO: move to encode *)
+let create_func_symbol name mt = (* TODO: move to encode *)
   let w = !wasm_module in
   wasm_module := {w with 
     symbols = w.symbols @ [{
       name = name;
-      details = Function
+      details = Function mt
     }]
   }
 
-let create_import_symbol name = (* TODO: move to encode *)
+let create_import_symbol name mt =
   let w = !wasm_module in
   wasm_module := {w with 
     symbols = w.symbols @ [{
       name = name;
-      details = Import
+      details = Import mt
     }]
   }
 
@@ -253,11 +253,11 @@ let blockheader_details header =
 let rec to_operations context (expression_list:expression list) operation =
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
-  | Cextcall (symbol, _, _, _), _ -> (
+  | Cextcall (symbol, mt, _, _), _ -> (
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       (if not (func_symbol_exists symbol) then 
-        (create_import_symbol symbol;
+        (create_import_symbol symbol mt;
         [Call symbol])
       else
         [Call symbol])
@@ -629,13 +629,13 @@ and emit_expr (context:context) (expression:expression) =
     load_action @
     [CallIndirect name_]
     )
-  | Cop (Capply _, (Cconst_symbol hd)::tl, _) -> (    
+  | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (    
     let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] tl in
     expression_list @
     (if func_symbol_exists hd then    
       [Call hd]
      else (
-      create_import_symbol hd;
+      create_import_symbol hd mt;
       [Call hd])
     ))
   | Cop (operation, expression_list, _) ->
@@ -935,13 +935,13 @@ let begin_assembly () = (
   in
 
   
-  create_import_symbol "jsTryWith";
-  create_import_symbol "jsRaise_i32_i32";
-  create_import_symbol "jsRaise_i32_unit";
-  create_import_symbol "caml_fresh_oo_id";
-  create_import_symbol "caml_alloc";
-  create_import_symbol "camlCamlinternalFormatBasics__entry";
-  create_import_symbol "camlPervasives__entry";
+  create_import_symbol "jsTryWith" [||];
+  create_import_symbol "jsRaise_i32_i32" [||];
+  create_import_symbol "jsRaise_i32_unit" [||];
+  create_import_symbol "caml_fresh_oo_id" [||];
+  create_import_symbol "caml_alloc" [||];
+  create_import_symbol "camlCamlinternalFormatBasics__entry" [||];
+  create_import_symbol "camlPervasives__entry" [||];
 
   let exports = [
   {
@@ -998,7 +998,21 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       args := [Types.I32Type] @ !args;
     ) fun_args;
 
-    create_func_symbol fun_name;
+    print_string (fun_name ^ " - ");
+
+    List.iter Ident.(fun (ident, mt) ->
+      print_string (" @" ^ ident.name ^ ":");
+      match mt with
+      | [|Val|] -> print_string "val"
+      | [|Addr|] -> print_string "addr"
+      | [|Int|] -> print_string "int"
+      | [|Float|] -> print_string "float"
+      | _ -> failwith "Unexpected combination of machtypes"
+    ) fun_args;
+    
+    print_endline "";
+    
+    create_func_symbol fun_name [||];
     
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
@@ -1037,18 +1051,23 @@ and data dl = (
         (* let data_id = ref 0l in *)
         let offset = ref 0 in        
         let symbol_name = ref "" in
-         let is_closure =
-              match List.hd dl with
-              | Cint i when (((Nativeint.to_int i) land 255) == 247) -> true
-              | _ -> false
+        let size = ref 0n in
+        let is_closure =
+            match List.hd dl with
+            | Cint i when (((Nativeint.to_int i) land 255) == 247) -> 
+              let (s, _) = blockheader_details i in
+              size := s;
+              true
+            | _ -> false
         in
         List.iter (function
         | Cglobal_symbol _ -> ()
         | Csymbol_address symbol -> (            
             let add =
               if is_closure then 
-                ((if not (func_symbol_exists symbol) then 
-                  create_import_symbol symbol);
+                ((if not (func_symbol_exists symbol) then (
+                  (* let no_of_args = Nativeint.to_int (Nativeint.shift_right !size 1) in *)
+                  create_import_symbol symbol [||]));
                 [FunctionLoc symbol])
               else             
                 [Symbol symbol]            
