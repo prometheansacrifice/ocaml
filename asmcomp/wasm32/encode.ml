@@ -319,9 +319,7 @@ let encode m =
       let rec f symbol symbols result = 
         match symbols with 
         | {name; details = Function _} :: remaining
-        | {name; details = Import _} :: remaining when name = symbol -> result        
-        | {details = Import _} :: remaining -> f symbol remaining (Int32.add result 1l)
-        | {details = Function _} :: remaining -> f symbol remaining (Int32.add result 1l) 
+        | {name; details = Import _} :: remaining when name = symbol -> result
         | _ :: remaining -> f symbol remaining (Int32.add result 1l)
         | [] -> assert false
       in
@@ -886,70 +884,63 @@ let encode m =
     let relocate_data_section symbols data =
       custom_section "reloc.DATA" (reloc_data symbols) data (data <> [])
 
-    let written_symbols:string list ref = ref []
-
-    let symbol sym =
-      if not (List.exists (fun f -> f = sym.name) !written_symbols) then (
-        written_symbols := !written_symbols @ [sym.name];
-        
-        (match sym.details with
-        | Import _
-        | Function _ -> vu32 0l
-        | Data _ ->  vu32 1l
-        | Global _ -> vu32 2l
-        );
-
-        let flags = 
-         ref (match sym.details with
-            | Import _ -> 1l
-            | Function _ -> 1l
-            | Data _ ->  1l
-            | Global _ -> 2l (* why is this 2... *)
-            )
-        in
-        let exists = (match sym.details with
-        | Import _ -> false
-        | Function _ -> 
-          (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
-            (* List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs             *)
-            failwith ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));            
-          );
-          (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs)
-        | Data d -> 
-          d.index <> (-1l)
-        | _ -> true
-        )
-        in
-        if not exists then 
-        (
-          flags := Int32.logor !flags 16l
-        );        
-        vu32 !flags;        
-        (match sym.details with
-        | Global f -> 
-          vu32 f.index;
-          string sym.name;
-        | Function _ ->
-          print_endline ("creating a symbol for: " ^ sym.name ^ " = " ^ Int32.to_string !flags);
-          vu32 (func_index sym.name);
-          string sym.name;
-        | Import _ ->
-          vu32 (func_index sym.name);
-        | Data d ->
-          string sym.name;
-          if exists then (
-            vu32 (data_index sym.name);
-            vu32 d.relocation_offset;
-            vu32 d.size
-          )
-        )        
+    
+    let counter = ref 0
+    let symbol sym =      
+      print_endline (string_of_int !counter ^ " write symbol:" ^ sym.name);
+      counter := !counter + 1;
+      (match sym.details with
+      | Import _
+      | Function _ -> u8 0
+      | Data _ ->  u8 1
+      | Global _ -> u8 2
       );
-      ()
+
+      let flags = ref 1l in
+      let exists = (match sym.details with
+      | Import _ -> false
+      | Function _ -> 
+        (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
+          (* List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs             *)
+          failwith ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));            
+        );
+        (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs)
+      | Data _ -> (data_index sym.name) <> -1l
+      | _ -> true
+      )
+      in
+      if not exists then 
+      (
+        flags := Int32.logor !flags 16l
+      );        
+      vu32 !flags;        
+      (match sym.details with
+      | Global f -> 
+        print_endline ("GLOBAL:" ^ sym.name ^ ", index:" ^ Int32.to_string f.index);
+        vu32 f.index;
+        if exists then (
+          string sym.name
+        )
+      | Function _ ->
+        print_endline ("creating a symbol for: " ^ sym.name ^ " = " ^ Int32.to_string !flags);
+        vu32 (func_index sym.name);
+        string sym.name;
+      | Import _ ->
+        vu32 (func_index sym.name);
+      | Data d ->
+        string sym.name;
+        if exists then (
+          vu32 (data_index sym.name);
+          vu32 d.relocation_offset;
+          vu32 d.size
+        )
+      )        
+    
 
 
     let symbol_table (data, (data2:data_part segment list)) =
       (* let size = ref 0l in
-      List.iter (fun f ->
+      List.iter (fun f -> 
         match f.details with
         | Data d -> size := Int32.add d.offset d.size
         | _ -> ()
@@ -976,12 +967,23 @@ let encode m =
         vu32 0l;      
       ) data2;
       patch_gap32 g (pos s - p);
+      
       u8 8; (* WASM_SYMBOL_TABLE *)
       let g = gap32 () in
       let p = pos s in
 
+      let written_symbols = ref [] in
+      let data = List.filter (fun sym -> (
+        let exists = List.exists (fun f -> f = sym.name) !written_symbols in
+        if not exists then (
+          written_symbols := !written_symbols @ [sym.name]
+        );
+        not exists
+      )) data in
       vec symbol data;
       patch_gap32 g (pos s - p);
+      print_endline ("RESULT1: " ^ string_of_int !counter);
+      print_endline ("RESULT2: " ^ string_of_int (pos s - p));
 
       List.iteri(fun i f ->
         match f.details with
