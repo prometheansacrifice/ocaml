@@ -459,12 +459,21 @@ let encode m =
       | DataSymbol symbol ->
         op 0x41;
         let p = pos s in
+        let found = ref false in
         List.iteri (fun symbol_index s -> match s.details with
         | Data { offset } when s.name = symbol ->
+            found := true;
             code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
             vs32_fixed offset
-        | _ -> ()  
-        ) m.symbols
+        | Import [||]
+        | Function [||] when s.name = symbol ->
+          found := true;
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];
+          vs32_fixed (func_index symbol)
+        | Global _ when s.name = symbol -> print_endline "OTHER..." 
+        | _ -> ()
+        ) m.symbols;
+        if not !found then failwith ("Symbol was not resolved:" ^ symbol)
       | Const (I32 c) -> op 0x41; vs32 c
       | Const (I64 c) -> op 0x42; vs64 c
       | Const (F32 c) -> op 0x43; f32 c
@@ -749,8 +758,11 @@ let encode m =
     let elem_section elems =
       section 9 (vec table_segment) elems (elems <> [])
 
+    let iter = ref 0
 
     let data_part_list symbols (data_part_list:data_part) =
+      print_endline ("DATA " ^ string_of_int !iter);
+      iter := !iter + 1;
       let data_length = List.fold_left (fun cur add ->
           cur + match add with          
           | String s -> String.length s
@@ -762,36 +774,45 @@ let encode m =
           | Int16 n -> 2
           | Int8 n -> 1           
       ) 0 data_part_list.detail in
+      print_endline ("size:" ^ string_of_int data_length);
       len data_length;
       List.iter (fun f ->
         match f with
         | String bs -> 
+          print_endline "- data: string";
           put_string s bs
         | Float32 f -> 
+          print_endline "- data: Float32";
           f32 f
         | Symbol symbol ->
+          print_endline "- data: symbol";
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
           List.iteri (fun symbol_index s -> match s.details with
-           | Data { index; offset } when s.name = symbol ->
+           | Data { index; offset } when s.name = symbol -> 
             if offset = (-1l) then
               u32 0l
             else
               u32 offset
            | _ -> ()  
-          ) symbols;          
+          ) symbols
         | FunctionLoc symbol -> 
+          print_endline "- data: functionloc";
           let p = pos s in
           let symbol_index = func_index symbol in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];          
           u32 symbol_index
         | Int32 i32 -> 
+          print_endline "- data: Int32";
           u32 i32
         | Nativeint ni -> 
+          print_endline "- data: Nativint";
           u32 (Nativeint.to_int32 ni)
         | Int16 i -> 
+          print_endline "- data: int16";
           u16 i
         | Int8 i -> 
+          print_endline "- data: int8";
           u8 i
       ) data_part_list.detail
 

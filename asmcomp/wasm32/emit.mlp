@@ -518,10 +518,12 @@ let rec to_operations context (expression_list:expression list) operation =
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
-  | Craise _, [arg] ->    
-    (emit_expr context arg)
+  | Craise _, _ -> 
+    print_endline "CRAISE NOT SUPPORTED YET :-(";
+    [] (* FIX ME *)
+    (* (emit_expr context arg)
     @
-    [Call "jsRaise_i32_i32"]
+    [Call "jsRaise_i32_i32"] *)
   | Ccheckbound, [fst; snd] -> (
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in
@@ -648,7 +650,7 @@ and emit_expr (context:context) (expression:expression) =
     Stack.push "ifthenelse" block_stack;
     let i = emit_expr context if_ in
     current_return_type := [];
-    let t = emit_expr context then_ in
+    let t = emit_expr context then_ in    
     let e = emit_expr context else_ in
     ignore(Stack.pop block_stack);
     i @ [If (!current_return_type, t, e)]
@@ -1046,6 +1048,8 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
 )
 and data dl = (
     if List.length dl > 0 then (
+        print_endline "counter...";
+        
         let init = ref [] in
         let start_offset = !global_offset in
         (* let data_id = ref 0l in *)
