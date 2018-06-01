@@ -86,6 +86,41 @@ let encode m =
   )
   in
   let m = find_imports () in *)
+  let foox () = Ast.(
+    let symbols2 = ref [] in
+    let rec handle_expr instr =
+      (print_endline "a1";
+      match instr with       
+      | DataSymbol symbol :: remaining ->        
+        (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
+            not (List.exists (fun s -> s.name = symbol) !symbols2) then  
+          symbols2 := !symbols2 @ [{
+            name = symbol;
+            details = Import [||]
+          }]
+        );
+        handle_expr remaining
+      | Block (_, instr) :: remaining -> 
+        handle_expr instr;
+        handle_expr remaining;
+      | Loop (_, instr) :: remaining ->
+        handle_expr instr;
+        handle_expr remaining;
+      | If (_, e1 , e2) :: remaining ->
+        handle_expr e1;
+        handle_expr e2;
+        handle_expr remaining;
+      | _ :: remaining -> 
+        handle_expr remaining;
+      | [] -> ())
+    in 
+    List.iter (fun (f:Ast.func) -> handle_expr f.body) m.funcs;
+    List.iter (fun f -> print_endline ("YO:" ^ f.name)) !symbols2;
+    print_endline ("DONE:" ^ string_of_int (List.length !symbols2));
+    {m with symbols = m.symbols @ !symbols2})
+  in 
+  let m = foox () in
+  print_endline "DONE...";
   let turn_missing_functions_to_imports () = Ast.( 
     let missing_imports = List.filter (fun symbol ->
       match symbol.details with 
@@ -460,6 +495,7 @@ let encode m =
         op 0x41;
         let p = pos s in
         let found = ref false in
+        print_endline ("HI:" ^ symbol);
         List.iteri (fun symbol_index s -> match s.details with
         | Data { offset } when s.name = symbol ->
             found := true;
@@ -470,10 +506,10 @@ let encode m =
           found := true;
           code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];
           vs32_fixed (func_index symbol)
-        | Global _ when s.name = symbol -> print_endline "OTHER..." 
         | _ -> ()
         ) m.symbols;
-        if not !found then failwith ("Symbol was not resolved:" ^ symbol)
+        if not !found then
+          failwith ("Symbol was not resolved:" ^ symbol)
       | Const (I32 c) -> op 0x41; vs32 c
       | Const (I64 c) -> op 0x42; vs64 c
       | Const (F32 c) -> op 0x43; f32 c
