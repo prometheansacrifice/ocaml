@@ -86,11 +86,10 @@ let encode m =
   )
   in
   let m = find_imports () in *)
-  let foox () = Ast.(
+  let fix_missing_symbols () = Ast.(
     let symbols2 = ref [] in
     let rec handle_expr instr =
-      (print_endline "a1";
-      match instr with       
+      (match instr with       
       | DataSymbol symbol :: remaining ->        
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
             not (List.exists (fun s -> s.name = symbol) !symbols2) then  
@@ -115,12 +114,9 @@ let encode m =
       | [] -> ())
     in 
     List.iter (fun (f:Ast.func) -> handle_expr f.body) m.funcs;
-    List.iter (fun f -> print_endline ("YO:" ^ f.name)) !symbols2;
-    print_endline ("DONE:" ^ string_of_int (List.length !symbols2));
     {m with symbols = m.symbols @ !symbols2})
   in 
-  let m = foox () in
-  print_endline "DONE...";
+  let m = fix_missing_symbols () in
   let turn_missing_functions_to_imports () = Ast.( 
     let missing_imports = List.filter (fun symbol ->
       match symbol.details with 
@@ -495,7 +491,6 @@ let encode m =
         op 0x41;
         let p = pos s in
         let found = ref false in
-        print_endline ("HI:" ^ symbol);
         List.iteri (fun symbol_index s -> match s.details with
         | Data { offset } when s.name = symbol ->
             found := true;
@@ -797,7 +792,6 @@ let encode m =
     let iter = ref 0
 
     let data_part_list symbols (data_part_list:data_part) =
-      print_endline ("DATA " ^ string_of_int !iter);
       iter := !iter + 1;
       let data_length = List.fold_left (fun cur add ->
           cur + match add with          
@@ -810,45 +804,41 @@ let encode m =
           | Int16 n -> 2
           | Int8 n -> 1           
       ) 0 data_part_list.detail in
-      print_endline ("size:" ^ string_of_int data_length);
       len data_length;
       List.iter (fun f ->
         match f with
         | String bs -> 
-          print_endline "- data: string";
           put_string s bs
         | Float32 f -> 
-          print_endline "- data: Float32";
           f32 f
         | Symbol symbol ->
-          print_endline "- data: symbol";
           let p = pos s in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
+          let found = ref false in
           List.iteri (fun symbol_index s -> match s.details with
            | Data { index; offset } when s.name = symbol -> 
+            found := true;
             if offset = (-1l) then
               u32 0l
             else
               u32 offset
            | _ -> ()  
-          ) symbols
+          ) symbols;
+          if !found then (
+            failwith ("Not found symbol: " ^ symbol)
+          )
         | FunctionLoc symbol -> 
-          print_endline "- data: functionloc";
           let p = pos s in
           let symbol_index = func_index symbol in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];          
           u32 symbol_index
         | Int32 i32 -> 
-          print_endline "- data: Int32";
           u32 i32
         | Nativeint ni -> 
-          print_endline "- data: Nativint";
           u32 (Nativeint.to_int32 ni)
         | Int16 i -> 
-          print_endline "- data: int16";
           u16 i
         | Int8 i -> 
-          print_endline "- data: int8";
           u8 i
       ) data_part_list.detail
 
@@ -944,7 +934,6 @@ let encode m =
     
     let counter = ref 0
     let symbol sym =      
-      print_endline (string_of_int !counter ^ " write symbol:" ^ sym.name);
       counter := !counter + 1;
       (match sym.details with
       | Import _
@@ -958,7 +947,6 @@ let encode m =
       | Import _ -> false
       | Function _ -> 
         (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
-          (* List.iter (fun (f:Ast.func) -> print_endline (" - " ^ f.name)) m.funcs             *)
           failwith ("BUG: symbol " ^ sym.name ^ " appears to refer to a nonexisting function, perhaps it should refer to an import instead?"));            
         );
         (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs)
@@ -973,13 +961,11 @@ let encode m =
       vu32 !flags;        
       (match sym.details with
       | Global f -> 
-        print_endline ("GLOBAL:" ^ sym.name ^ ", index:" ^ Int32.to_string f.index);
         vu32 f.index;
         if exists then (
           string sym.name
         )
       | Function _ ->
-        print_endline ("creating a symbol for: " ^ sym.name ^ " = " ^ Int32.to_string !flags);
         vu32 (func_index sym.name);
         string sym.name;
       | Import _ ->
@@ -1039,9 +1025,7 @@ let encode m =
       )) data in
       vec symbol data;
       patch_gap32 g (pos s - p);
-      print_endline ("RESULT1: " ^ string_of_int !counter);
-      print_endline ("RESULT2: " ^ string_of_int (pos s - p));
-
+      
       List.iteri(fun i f ->
         match f.details with
         | Function _ when f.name = "_start" ->  (
