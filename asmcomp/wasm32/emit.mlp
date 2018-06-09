@@ -100,23 +100,53 @@ let func_symbol_exists symbol =
     | _ -> false
   ) w.symbols
 
-let create_func_symbol name mt = (* TODO: move to encode *)
+let is_import symbol = 
   let w = !wasm_module in
-  wasm_module := {w with 
-    symbols = w.symbols @ [{
-      name = name;
-      details = Function mt
-    }]
-  }
+  List.exists (fun f -> 
+    let name = f.name in
+    match f.details with
+    | Import _ when name = symbol -> true
+    | _ -> false
+  ) w.symbols
 
-let create_import_symbol name mt =
-  let w = !wasm_module in
-  wasm_module := {w with 
-    symbols = w.symbols @ [{
-      name = name;
-      details = Import mt
-    }]
-  }
+let create_func_symbol symbol mt = (* TODO: move to encode *)
+  if symbol = "" then failwith "2 Name can't be empty";
+  if not (func_symbol_exists symbol) then (    
+    let w = !wasm_module in
+    wasm_module := {w with 
+      symbols = w.symbols @ [{
+        name = symbol;
+        details = Function mt
+      }]
+    }
+  )
+  else if is_import symbol then (
+    let w = !wasm_module in
+    wasm_module := {w with symbols = List.map (fun s -> (
+      if (s.name = symbol) then
+        {
+        name = symbol;
+        details = Function mt
+      }
+      
+      else s
+          )) w.symbols
+    }
+  )
+
+  
+
+let create_import_symbol name mt =  
+  if name = "" then failwith "Name can't be empty";
+  if not (func_symbol_exists name) then (    
+    let w = !wasm_module in
+    wasm_module := {w with 
+      symbols = w.symbols @ [{
+        name = name;
+        details = Import mt
+      }]
+    }
+  )
 
 let create_symbol_table () = ( (* TODO: move to encode *)
   let w = !wasm_module in
@@ -257,8 +287,11 @@ let rec to_operations context (expression_list:expression list) operation =
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       (if not (func_symbol_exists symbol) then 
+        ((if symbol = "camlStdlib__loop_1160" then (
+          print_endline "Creating an import here 1"
+        ));
         (create_import_symbol symbol mt;
-        [Call symbol])
+        [Call symbol]))
       else
         [Call symbol])
     )
@@ -291,7 +324,7 @@ let rec to_operations context (expression_list:expression list) operation =
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
       let position = ref 0 in
       
-
+    
       let calls = List.fold_left (fun calls f ->         
         let result = calls @
         ([GetLocal local_;
@@ -637,6 +670,9 @@ and emit_expr (context:context) (expression:expression) =
     (if func_symbol_exists hd then    
       [Call hd]
      else (
+       (if hd = "camlStdlib__loop_1160" then (
+          print_endline "Creating an import here 2"
+        ));
       create_import_symbol hd mt;
       [Call hd])
     ))
@@ -923,11 +959,11 @@ let begin_assembly () = (
       item_name = name "caml_alloc";
       idesc = FuncImport "type_"
     };
-    {
+    (* {
       module_name = name "linking";
       item_name = name "camlCamlinternalFormatBasics__entry";
       idesc = FuncImport "empty_type"
-    };
+    }; *)
     {
       module_name = name "linking";
       item_name = name "camlPervasives__entry";
@@ -942,7 +978,7 @@ let begin_assembly () = (
   create_import_symbol "jsRaise_i32_unit" [||];
   create_import_symbol "caml_fresh_oo_id" [||];
   create_import_symbol "caml_alloc" [||];
-  create_import_symbol "camlCamlinternalFormatBasics__entry" [||];
+  (* create_import_symbol "camlCamlinternalFormatBasics__entry" [||]; *)
   create_import_symbol "camlPervasives__entry" [||];
 
   let exports = [
@@ -1000,7 +1036,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       args := [Types.I32Type] @ !args;
     ) fun_args;
 
-    print_string (fun_name ^ " - ");
+    (* print_string (fun_name ^ " - ");
 
     List.iter Ident.(fun (ident, mt) ->
       print_string (" @" ^ ident.name ^ ":");
@@ -1010,9 +1046,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       | [|Int|] -> print_string "int"
       | [|Float|] -> print_string "float"
       | _ -> failwith "Unexpected combination of machtypes"
-    ) fun_args;
-    
-    print_endline "";
+    ) fun_args; *)
     
     create_func_symbol fun_name [||];
     
@@ -1047,9 +1081,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
                                };
 )
 and data dl = (
-    if List.length dl > 0 then (
-        print_endline "counter...";
-        
+    if List.length dl > 0 then (        
         let init = ref [] in
         let start_offset = !global_offset in
         (* let data_id = ref 0l in *)
@@ -1071,6 +1103,9 @@ and data dl = (
               if is_closure then 
                 ((if not (func_symbol_exists symbol) then (
                   (* let no_of_args = Nativeint.to_int (Nativeint.shift_right !size 1) in *)
+                  if symbol = "camlStdlib__loop_1160" then (
+                     print_endline "Creating an import here 3"
+                  );
                   create_import_symbol symbol [||]));
                 [FunctionLoc symbol])
               else             
