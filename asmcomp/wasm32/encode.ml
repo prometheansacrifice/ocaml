@@ -800,10 +800,14 @@ let encode m =
     let elem_section elems =
       section 9 (vec table_segment) elems (elems <> [])
 
+    let count_it = ref 0
     let data_part_list (data_part_list:data_part) =      
+      print_endline ("DATA SEGMENT: " ^ string_of_int !count_it);
+      count_it := !count_it + 1;
       let g = gap32 () in      
       let start = pos s in
       List.iter (fun f ->
+        print_endline "- a part...";
         match f with
         | String bs -> 
           put_string s bs
@@ -817,6 +821,7 @@ let encode m =
            | Data { index; offset } when s.name = symbol -> 
             found := true;
             data_relocations := !data_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_I32 (Int32.of_int p, symbol)];
+            print_endline ("- 1" ^ symbol);
             if offset = (-1l) then
               u32 0l
             else
@@ -825,7 +830,8 @@ let encode m =
            | Import _ when s.name = symbol ->
             found := true;
             let symbol_index = func_index symbol in
-            data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];          
+            data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];        
+            print_endline ("- 2" ^ symbol);  
             u32 symbol_index
            | Global _ when s.name = symbol ->
             failwith "Not handling a global here..."
@@ -836,8 +842,9 @@ let encode m =
           )
         | FunctionLoc symbol -> 
           let p = pos s in
-          let symbol_index = func_index symbol in
-          data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];          
+          let symbol_index = func_symbol_index symbol in
+          data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];  
+          print_endline ("- 3" ^ symbol ^ " has symbol index: " ^ Int32.to_string symbol_index);
           u32 symbol_index
         | Int32 i32 -> 
           u32 i32
@@ -855,33 +862,35 @@ let encode m =
       segment data_part_list seg
 
     let data_section data =
-      data_section_index := !section_counter;
+      print_endline ("Data index:" ^ string_of_int !data_section_index);
+      data_section_index := !section_counter;      
       data_pos := Int32.of_int (pos s + 6);
       section 11 (vec data_segment) data (data <> [])
 
     let reloc_code data =
       vu32 (Int32.of_int !code_section_index);
       vu32 (Int32.of_int (List.length !code_relocations));      
+      print_endline ("No of code relocations:" ^ string_of_int (List.length !code_relocations));
       List.iteri (fun i r -> 
       (        
+        print_endline (" - relocation: " ^ string_of_int i);
         match r with        
         | R_WEBASSEMBLY_TABLE_INDEX_SLEB (offset, symbol_) 
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> ( 
           let exists = ref false in
-          List.iteri (fun symbol_index s -> match s.details with
-          | Import _ when s.name = symbol_ -> (* ignoring this seems to fix an issue, but is this correct ??? *)
-            exists := true          
+          List.iteri (fun symbol_index s -> match s.details with          
           | Data _  when s.name = symbol_ ->
             exists := true;
             u8 4;
             vu32 (Int32.sub offset !code_pos);
-            vu32_fixed (Int32.of_int symbol_index); 
+            vs32_fixed (Int32.of_int symbol_index); 
             vs32 0l  
+          | Import _
           | Function _ when s.name = symbol_ -> 
             exists := true;            
             u8 1;            
             vu32 (Int32.sub offset !code_pos);
-            vu32_fixed (Int32.of_int symbol_index); 
+            vs32_fixed (Int32.of_int symbol_index); 
            | _ -> ()  
           ) m.symbols;
           if not !exists then (
@@ -889,7 +898,7 @@ let encode m =
           )
         )
         | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, symbol) ->
-          let symbol_index = func_symbol_index symbol in
+          let symbol_index = func_symbol_index symbol in          
           u8 0;
           vu32 (Int32.sub offset !code_pos);
           vu32_fixed symbol_index;
@@ -903,7 +912,7 @@ let encode m =
             | _ -> ()) m.symbols;
             u8 3;
             vu32 (Int32.sub offset !code_pos);
-            vu32_fixed (Int32.of_int !symbol_index);
+            vs32_fixed (Int32.of_int !symbol_index);
             vs32 0l
           )
         | R_WEBASSEMBLY_TYPE_INDEX_LEB (offset, index) ->
@@ -911,7 +920,6 @@ let encode m =
           vu32 (Int32.sub offset !code_pos); 
           vu32_fixed index
         | R_WEBASSEMBLY_GLOBAL_INDEX_LEB (offset, index) ->
-          print_endline "THIS IS A GLOBAL";
           u8 7;
           vu32 (Int32.sub offset !code_pos);
           vu32_fixed 0l
@@ -924,16 +932,20 @@ let encode m =
 
     let reloc_data data =
       vu32 (Int32.of_int !data_section_index);
-      vu32 (Int32.of_int (List.length !data_relocations));                
+      vu32 (Int32.of_int (List.length !data_relocations));    
+      print_endline ("reloc_data: " ^ string_of_int (List.length !data_relocations));
       List.iter (fun r ->
         match r with      
         | R_WEBASSEMBLY_TABLE_INDEX_I32 (offset, symbol) -> (            
           let symbol_index = func_symbol_index symbol in
+          let f_index = func_index symbol in
+          print_endline ("Symbol: " ^ symbol ^ " has index: " ^ Int32.to_string symbol_index ^ " and func index: " ^ Int32.to_string f_index);
           u8 2;
           vu32 (Int32.sub offset !data_pos);          
           vu32 symbol_index;
         )
         | R_WEBASSEMBLY_MEMORY_ADDR_I32 (offset, symbol_) -> (
+            print_endline "Memory address...";
             let symbol_index = ref (-1) in
             List.iteri (fun i s -> match s.details with
             | Data _ when s.name = symbol_ -> (
@@ -956,7 +968,7 @@ let encode m =
     
     let counter = ref 0
     let symbol sym =      
-      print_endline sym.name;
+      print_endline ("Symbol is: " ^ sym.name);
       counter := !counter + 1;
       print_endline ("Pos: " ^ string_of_int (!counter - 1));
       (match sym.details with
@@ -998,7 +1010,7 @@ let encode m =
         ) 
       | Import _ ->
         vu32 (func_index sym.name);
-      | Data d ->
+      | Data d -> (
         (if sym.name <> "" then
         string sym.name
         else 
@@ -1007,7 +1019,7 @@ let encode m =
           vu32 (data_index sym.name);
           vu32 d.relocation_offset;
           vu32 d.size
-        )
+        ))
       )        
     
 
