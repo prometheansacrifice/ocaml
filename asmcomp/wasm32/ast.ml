@@ -99,6 +99,7 @@ type instr =
   | GrowMemory                        (* grow linear memory *)
   | Const of literal                  (* constant *)
   | DataSymbol of string
+  (* | DataSymbol2 of string *)
   | Test of testop                    (* numeric test *)
   | Compare of relop                  (* numeric comparison *)
   | Unary of unop                     (* unary numeric operator *)
@@ -208,8 +209,8 @@ type sym_info_data = {
 }
 
 type sym_info_details =
-  | Function of Cmm.machtype
-  | Import of Cmm.machtype
+  | Function of (int * int)
+  | Import of (int * int)
   | Global of sym_info_function
   | Data of sym_info_data
 

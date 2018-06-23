@@ -116,7 +116,7 @@ let create_func_symbol symbol mt = (* TODO: move to encode *)
     wasm_module := {w with 
       symbols = w.symbols @ [{
         name = symbol;
-        details = Function mt
+        details = Function (0, 0)
       }]
     }
   )
@@ -134,16 +134,14 @@ let create_func_symbol symbol mt = (* TODO: move to encode *)
     }
   )
 
-  
-
-let create_import_symbol name mt =  
-  if name = "" then failwith "Name can't be empty";
+let create_import_symbol name no_of_arguments result =
+  if name = "" then failwith "Name can't be empty";  
   if not (func_symbol_exists name) then (    
     let w = !wasm_module in
     wasm_module := {w with 
       symbols = w.symbols @ [{
         name = name;
-        details = Import mt
+        details = Import (no_of_arguments, result)
       }]
     }
   )
@@ -225,7 +223,7 @@ let oper_result_type = function
   | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> typ_float
   | Cfloatofint -> typ_float
   | Cintoffloat -> typ_int
-  | Craise _ -> typ_void
+  | Craise _ -> typ_int
 | Ccheckbound -> typ_void
 
 let convert_result = function 
@@ -287,11 +285,10 @@ let rec to_operations context (expression_list:expression list) operation =
       let expression_list = List.fold_left (fun lst f -> lst @ (emit_expr context f)) [] expression_list in
       expression_list @
       (if not (func_symbol_exists symbol) then 
-        ((if symbol = "camlStdlib__loop_1160" then (
-          print_endline "Creating an import here 1"
-        ));
-        (create_import_symbol symbol mt;
-        [Call symbol]))
+        (
+          print_endline ("1. Create an import for:" ^ symbol);
+          create_import_symbol symbol (List.length expression_list) (Array.length mt);
+        [Call symbol])
       else
         [Call symbol])
     )
@@ -332,7 +329,7 @@ let rec to_operations context (expression_list:expression list) operation =
         Binary (I32 I32Op.Add)]
         @
         (match f with 
-        | Cconst_symbol symbol -> [DataSymbol symbol]
+        | Cconst_symbol symbol -> print_endline ("Ey:" ^ symbol); [DataSymbol symbol]
         | _ as e -> emit_expr context e)
         @
         [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])        
@@ -595,6 +592,7 @@ and emit_expr (context:context) (expression:expression) =
     with
     | _ -> 
       current_return_type := [I32Type];
+      print_endline ("X2: " ^ symbol);
       [
         DataSymbol symbol;
         Const (I32 4l); (* FIX me: should not need to add 4 *)
@@ -669,11 +667,9 @@ and emit_expr (context:context) (expression:expression) =
     expression_list @
     (if func_symbol_exists hd then    
       [Call hd]
-     else (
-       (if hd = "camlStdlib__loop_1160" then (
-          print_endline "Creating an import here 2"
-        ));
-      create_import_symbol hd mt;
+    else (     
+      print_endline ("2. Create an import for:" ^ hd); 
+      create_import_symbol hd (List.length tl) (Array.length mt);
       [Call hd])
     ))
   | Cop (operation, expression_list, _) ->
@@ -973,13 +969,13 @@ let begin_assembly () = (
   in
 
   
-  create_import_symbol "jsTryWith" [||];
-  create_import_symbol "jsRaise_i32_i32" [||];
-  create_import_symbol "jsRaise_i32_unit" [||];
-  create_import_symbol "caml_fresh_oo_id" [||];
-  create_import_symbol "caml_alloc" [||];
+  create_import_symbol "jsTryWith" 0 0;
+  create_import_symbol "jsRaise_i32_i32" 0 0;
+  create_import_symbol "jsRaise_i32_unit" 0 0;
+  create_import_symbol "caml_fresh_oo_id" 0 0;
+  create_import_symbol "caml_alloc" 0 0;
   (* create_import_symbol "camlCamlinternalFormatBasics__entry" [||]; *)
-  create_import_symbol "camlPervasives__entry" [||];
+  create_import_symbol "camlPervasives__entry" 0 0;
 
   let exports = [
   {
@@ -1048,7 +1044,9 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       | _ -> failwith "Unexpected combination of machtypes"
     ) fun_args; *)
     
-    create_func_symbol fun_name [||];
+    print_endline ("create func symbol here..:" ^ fun_name);
+
+    create_func_symbol fun_name (0, 0);
     
     (* remove unit return value *)
     let rec remove_last_unit fun_body =
@@ -1101,12 +1099,10 @@ and data dl = (
         | Csymbol_address symbol -> (            
             let add =
               if is_closure then 
+              
                 ((if not (func_symbol_exists symbol) then (
-                  (* let no_of_args = Nativeint.to_int (Nativeint.shift_right !size 1) in *)
-                  if symbol = "camlStdlib__loop_1160" then (
-                     print_endline "Creating an import here 3"
-                  );
-                  create_import_symbol symbol [||]));
+                  print_endline ("3. Create an import for:" ^ symbol);
+                  create_import_symbol symbol 0 0));
                 [FunctionLoc symbol])
               else             
                 [Symbol symbol]            
@@ -1151,7 +1147,6 @@ and data dl = (
         | Calign _ -> () (* seems not to be produced anyway in the OCaml codebase *)
         ) dl;
 
-        (* print_endline ("Offset for " ^ !symbol_name ^ " = " ^ string_of_int start_offset); *)
         let w = !wasm_module in
         wasm_module := {w with symbols = w.symbols @ [{
           name = !symbol_name;
