@@ -1115,9 +1115,10 @@ else
 fi
 config ARCMD "${TOOLPREF}ar"
 
-
-
-
+if $wasm32; then
+  config RANLIB ""
+  config RANLIBCMD ""
+fi
 
 # Write the OS type (Unix or Cygwin)
 
