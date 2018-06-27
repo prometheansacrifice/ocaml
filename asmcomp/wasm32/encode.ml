@@ -101,10 +101,22 @@ let encode m =
     let code_symbols = ref [] in
     let rec handle_expr instr =
       (match instr with
+      | FuncSymbol symbol :: remaining ->  
+        (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
+            not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
+              print_endline ("Is it data or a function, guessing Func for now:" ^ symbol);
+          
+          code_symbols := !code_symbols @ [{
+            name = symbol;
+            details = Import (0,0)
+          }])
+        );
+        handle_expr remaining              
       | DataSymbol symbol :: remaining ->                
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
             not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
-          print_endline ("DS:" ^ symbol);
+              print_endline ("Is it data or a function, guessing DATA for now:" ^ symbol);
+          
           code_symbols := !code_symbols @ [{
             name = symbol;
             details = Data ({
@@ -150,7 +162,6 @@ let encode m =
     List.iter (fun symbol ->
       let key = symbol.name in
       let name_ = ("empty_type_" ^ key) in
-      print_endline ("Symbol:" ^ key);
       let (arg, result) = match symbol.details with 
       | Import i
       | Function i -> i
@@ -161,8 +172,6 @@ let encode m =
         | 0 -> x
         | _ -> create (x @ [Types.I32Type]) (y - 1)
       in
-      print_endline ("TODO: args: " ^ string_of_int arg);
-      print_endline ("TODO: result:" ^ string_of_int result);
       let empty_type:Ast.type_ = {name = name_; details = Types.FuncType (create [] arg, create [] result)} in
       types := !types @ [empty_type];
       imports := !imports @ [{
@@ -295,7 +304,9 @@ let encode m =
       vu32 (Int32.of_int i)
 
     let bool b = vu1 (if b then 1 else 0)
-    let string bs = len (String.length bs); put_string s bs
+    let string bs = (
+      len (String.length bs); put_string s bs
+    )
     let name n = string (Utf8.encode n)
     let list f xs = List.iter f xs
     let opt f xo = Lib.Option.app f xo
@@ -383,6 +394,16 @@ let encode m =
         | [] -> assert false
       in
       f symbol m.symbols 0l
+
+    (* let data_symbol_index symbol = 
+      let rec f symbol symbols result = 
+        match symbols with 
+        | {name; details = Data _} :: remaining when name = symbol -> result
+        | _ :: remaining -> f symbol remaining (Int32.add result 1l)
+        | [] -> assert false
+      in
+      f symbol m.symbols 0l *)
+
 
     let func_index symbol = 
       let rec find_import imports count = 
@@ -513,6 +534,20 @@ let encode m =
       | Store {ty = F32Type | F64Type; sz = Some _; _} -> assert false
       | CurrentMemory -> op 0x3f; u8 0x00
       | GrowMemory -> op 0x40; u8 0x00
+      | FuncSymbol symbol ->
+        op 0x41;
+        let p = pos s in
+        let found = ref false in
+        List.iteri (fun symbol_index s -> match s.details with        
+        | Import _
+        | Function _ when s.name = symbol && not !found ->
+          found := true;
+          code_relocations := !code_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_SLEB (Int32.of_int p, symbol)];
+          vs32_fixed (func_index symbol)
+        | _ -> ()
+        ) m.symbols;
+        if not !found then
+          failwith ("Symbol was not resolved:" ^ symbol)
       | DataSymbol symbol ->
         op 0x41;
         let p = pos s in
@@ -853,9 +888,9 @@ let encode m =
           )
         | FunctionLoc symbol -> 
           let p = pos s in
-          let symbol_index = func_symbol_index symbol in
+          let symbol_index = func_index symbol in
           data_relocations := !data_relocations @ [R_WEBASSEMBLY_TABLE_INDEX_I32 (Int32.of_int p, symbol)];  
-          u32 symbol_index
+          u32 symbol_index        
         | Int32 i32 -> 
           u32 i32
         | Nativeint ni -> 
@@ -905,6 +940,7 @@ let encode m =
           )
         )
         | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, symbol) ->
+          print_endline ("A4:" ^ symbol);
           let symbol_index = func_symbol_index symbol in          
           u8 0;
           vu32 (Int32.sub offset !code_pos);
@@ -971,6 +1007,7 @@ let encode m =
     
     let counter = ref 0
     let symbol sym =      
+      print_endline ("SYMBOL:" ^ sym.name ^ ": " ^ string_of_int !counter);
       counter := !counter + 1;
       (match sym.details with
       | Import _
@@ -991,34 +1028,45 @@ let encode m =
       | Global _ -> true
       )
       in
-      if not exists then 
-      (                        
+      (if not exists then 
+      (      
+        print_endline "- does not exist";
         flags := Int32.logor !flags 16l
-      );
+      ));
       vu32 !flags;  
       (match sym.details with
       | Global f -> 
+        print_endline "- global!";
         vu32 f.index;
         if exists then (
           string sym.name
         )
       | Function _ ->
+        print_endline ("- write function symbol:" ^ sym.name);
         vu32 (func_index sym.name);
         if exists then (
           string sym.name
         ) 
       | Import _ ->
+        print_endline "- import!";
         vu32 (func_index sym.name);
       | Data d -> (
-        (if sym.name <> "" then
+        print_endline ("- write data symbol:" ^ sym.name);
+
+
+
+        (if sym.name <> "" then        
         string sym.name
         else 
-        string "_"); (* probably an initial block ?!malformed uleb128*)
+        (print_endline ("NOTHING FOR:" ^ sym.name);
+        string "_")); (* probably an initial block ?!malformed uleb128*)
         if exists then (
           vu32 (data_index sym.name);
           vu32 d.relocation_offset;
           vu32 d.size
-        ))
+        )
+        
+        )
       )        
     
 

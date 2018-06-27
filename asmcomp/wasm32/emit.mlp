@@ -315,7 +315,7 @@ let rec to_operations context (expression_list:expression list) operation =
       expression_list @ instr
     )
   | Calloc, Cblockheader (header, _) :: _ -> (
-      let (word_size, _) = blockheader_details header in
+      let (word_size, tag) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
@@ -329,7 +329,11 @@ let rec to_operations context (expression_list:expression list) operation =
         Binary (I32 I32Op.Add)]
         @
         (match f with 
-        | Cconst_symbol symbol -> print_endline ("Ey:" ^ symbol); [DataSymbol symbol]
+        | Cconst_symbol symbol ->           
+          print_endline ("Symbol " ^ symbol ^ " has tag: " ^ Nativeint.to_string tag);
+          let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
+          (if is_closure then [FuncSymbol symbol] else [DataSymbol symbol]);
+          
         | _ as e -> emit_expr context e)
         @
         [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])        
@@ -592,7 +596,7 @@ and emit_expr (context:context) (expression:expression) =
     with
     | _ -> 
       current_return_type := [I32Type];
-      print_endline ("X2: " ^ symbol);
+      print_endline ("emit_expr -> Cconst_symbol: DataSymbol: " ^ symbol);
       [
         DataSymbol symbol;
         Const (I32 4l); (* FIX me: should not need to add 4 *)
@@ -1092,26 +1096,34 @@ and data dl = (
               let (s, _) = blockheader_details i in
               size := s;
               true
+            | Csymbol_address _ -> true
             | _ -> false
         in
         List.iter (function
         | Cglobal_symbol _ -> ()
         | Csymbol_address symbol -> (            
             let add =
-              if is_closure then 
-              
-                ((if not (func_symbol_exists symbol) then (
+              if is_closure then               
+                ((if not (func_symbol_exists symbol) then (                  
                   print_endline ("3. Create an import for:" ^ symbol);
-                  create_import_symbol symbol 0 0));
-                [FunctionLoc symbol])
-              else             
-                [Symbol symbol]            
+                  create_import_symbol symbol 0 0;
+                    [FunctionLoc symbol] 
+                  )
+                  else 
+                    [FunctionLoc symbol]
+                  )
+                )
+              else  
+                (print_endline ("Not a closure: " ^ symbol);
+                [Symbol symbol])
             in
             init := !init @ add;
             offset := !offset + 4;
             ()
             )
-        | Cdefine_symbol symbol -> symbol_name := symbol
+        | Cdefine_symbol symbol -> 
+          print_endline ("DATA:" ^ symbol);
+          symbol_name := symbol
         | Cint8 i -> (
             init := !init @ [Int8 i];
             offset := !offset + 1;
