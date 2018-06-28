@@ -139,10 +139,11 @@ let create_archive archive file_list =
       in
       if is_macosx && file_list = [] then  (* PR#6550 *)
         macos_create_empty_archive ~quoted_archive
-      else        
+      else             
         let r1 =
           command(Printf.sprintf "%s -o %s %s"
-                  "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --relocatable --verbose" quoted_archive (quote_files file_list)) in
+                  "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --relocatable " quoted_archive (quote_files file_list)) in
+        print_endline ("foobar:" ^ Config.ranlib);
         if r1 <> 0 || String.length Config.ranlib = 0
         then r1
         else command(Config.ranlib ^ " " ^ quoted_archive)
@@ -174,7 +175,6 @@ let remove_Wl cclibs =
     else cclib)
 
 let call_linker mode output_name files extra =
-  print_endline "call_linker!";
   let cmd =
     if mode = Partial then      
       let l_prefix =
@@ -192,7 +192,7 @@ let call_linker mode output_name files extra =
       (
         if Config.wasm32 then 
           Printf.sprintf "%s -o %s %s %s %s %s %s %s"
-            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --export-table --verbose --allow-undefined"
+            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --allow-undefined --gc-sections --export-table"
             (Filename.quote output_name)
             (if !Clflags.gprofile then Config.cc_profile else "")
             ""  (*(Clflags.std_include_flag "-I")*)

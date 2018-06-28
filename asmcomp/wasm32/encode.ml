@@ -104,8 +104,6 @@ let encode m =
       | FuncSymbol symbol :: remaining ->  
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
             not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
-              print_endline ("Is it data or a function, guessing Func for now:" ^ symbol);
-          
           code_symbols := !code_symbols @ [{
             name = symbol;
             details = Import (0,0)
@@ -114,9 +112,7 @@ let encode m =
         handle_expr remaining              
       | DataSymbol symbol :: remaining ->                
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
-            not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
-              print_endline ("Is it data or a function, guessing DATA for now:" ^ symbol);
-          
+            not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (              
           code_symbols := !code_symbols @ [{
             name = symbol;
             details = Data ({
@@ -762,6 +758,7 @@ let encode m =
 
     let import im =
       let {module_name; item_name; idesc} = im in
+      print_endline ("Import: " ^ Ast.string_of_name module_name ^ "." ^ Ast.string_of_name item_name);
       name module_name; name item_name; import_desc idesc
 
     let import_section ims =
@@ -940,7 +937,6 @@ let encode m =
           )
         )
         | R_WEBASSEMBLY_FUNCTION_INDEX_LEB (offset, symbol) ->
-          print_endline ("A4:" ^ symbol);
           let symbol_index = func_symbol_index symbol in          
           u8 0;
           vu32 (Int32.sub offset !code_pos);
@@ -1007,7 +1003,6 @@ let encode m =
     
     let counter = ref 0
     let symbol sym =      
-      print_endline ("SYMBOL:" ^ sym.name ^ ": " ^ string_of_int !counter);
       counter := !counter + 1;
       (match sym.details with
       | Import _
@@ -1016,7 +1011,12 @@ let encode m =
       | Global _ -> u8 2
       );
 
-      let flags = ref 1l in
+      let flags = ref (
+        match sym.details with 
+        | Import _ -> 0l
+        | _ -> 1l
+      )
+      in
       let exists = (match sym.details with      
       | Function _ -> 
         (if not (List.exists (fun (f:Ast.func) -> f.name = sym.name) m.funcs) then ( 
@@ -1030,36 +1030,32 @@ let encode m =
       in
       (if not exists then 
       (      
-        print_endline "- does not exist";
         flags := Int32.logor !flags 16l
       ));
+      (match sym.details with 
+      | Global _ -> flags := Int32.logor !flags 4l 
+      | _ -> ());
+      print_endline ("Symbol: " ^ sym.name ^ " has flags: " ^ Int32.to_string !flags);
       vu32 !flags;  
       (match sym.details with
-      | Global f -> 
-        print_endline "- global!";
+      | Global f ->         
         vu32 f.index;
         if exists then (
+          print_endline ("GLOBAL SYMBOL YES:" ^ sym.name);
           string sym.name
         )
       | Function _ ->
-        print_endline ("- write function symbol:" ^ sym.name);
         vu32 (func_index sym.name);
         if exists then (
           string sym.name
         ) 
       | Import _ ->
-        print_endline "- import!";
         vu32 (func_index sym.name);
-      | Data d -> (
-        print_endline ("- write data symbol:" ^ sym.name);
-
-
-
+      | Data d -> (        
         (if sym.name <> "" then        
         string sym.name
-        else 
-        (print_endline ("NOTHING FOR:" ^ sym.name);
-        string "_")); (* probably an initial block ?!malformed uleb128*)
+        else         
+        string "_"); (* probably an initial block ?!malformed uleb128*)
         if exists then (
           vu32 (data_index sym.name);
           vu32 d.relocation_offset;
