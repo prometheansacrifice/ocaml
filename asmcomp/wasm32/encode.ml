@@ -106,7 +106,7 @@ let encode m =
             not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
           code_symbols := !code_symbols @ [{
             name = symbol;
-            details = Import (0,0)
+            details = Import ([],[])
           }])
         );
         handle_expr remaining              
@@ -159,16 +159,13 @@ let encode m =
       let key = symbol.name in
       let name_ = ("empty_type_" ^ key) in
       let (arg, result) = match symbol.details with 
-      | Import i
-      | Function i -> i
+      | Import i -> i
+      | Function i -> 
+        print_endline "WRONG: fix me please";
+        ([], []) 
       | _ -> assert false
-      in      
-      let rec create x y = 
-        match y with 
-        | 0 -> x
-        | _ -> create (x @ [Types.I32Type]) (y - 1)
-      in
-      let empty_type:Ast.type_ = {name = name_; details = Types.FuncType (create [] arg, create [] result)} in
+      in 
+      let empty_type:Ast.type_ = {name = name_; details = Types.FuncType (arg, result)} in
       types := !types @ [empty_type];
       imports := !imports @ [{
         module_name = name "libasmrun";
@@ -758,7 +755,6 @@ let encode m =
 
     let import im =
       let {module_name; item_name; idesc} = im in
-      print_endline ("Import: " ^ Ast.string_of_name module_name ^ "." ^ Ast.string_of_name item_name);
       name module_name; name item_name; import_desc idesc
 
     let import_section ims =
@@ -1035,13 +1031,11 @@ let encode m =
       (match sym.details with 
       | Global _ -> flags := Int32.logor !flags 4l 
       | _ -> ());
-      print_endline ("Symbol: " ^ sym.name ^ " has flags: " ^ Int32.to_string !flags);
       vu32 !flags;  
       (match sym.details with
       | Global f ->         
         vu32 f.index;
         if exists then (
-          print_endline ("GLOBAL SYMBOL YES:" ^ sym.name);
           string sym.name
         )
       | Function _ ->

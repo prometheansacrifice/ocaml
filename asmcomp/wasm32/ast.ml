@@ -211,7 +211,7 @@ type sym_info_data = {
 
 type sym_info_details =
   | Function of (int * int)
-  | Import of (int * int)
+  | Import of (stack_type * stack_type)
   | Global of sym_info_function
   | Data of sym_info_data
 
