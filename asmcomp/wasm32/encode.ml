@@ -474,7 +474,10 @@ let encode m =
       | Drop -> op 0x1a
       | Select -> op 0x1b
       | GetLocal x -> op 0x20; var x
-      | SetLocal x -> op 0x21; var x
+      | SetLocal x -> 
+        op 0x21; 
+        print_endline ("SetLocal x" ^ Int32.to_string x);
+        var x
       | TeeLocal x -> op 0x22; var x
       | GetGlobal x ->
         op 0x23;
@@ -816,7 +819,7 @@ let encode m =
         | ts -> (t, 1) :: ts
       in List.fold_right combine ts []
 
-    let local (t, n) = len n; value_type t
+    let local ((_, t), n) = len n; value_type t
 
     let code f =
       let {locals; body; _} = f in
@@ -1123,6 +1126,64 @@ let encode m =
     let linking_section data =
       custom_section "linking" symbol_table data (data <> [])
 
+    let name_section_impl m = 
+      (* u8 0; (* module name *)
+      let g = gap32 () in
+      let p = pos s in
+      string "Todo-ModuleName";
+      patch_gap32 g (pos s - p); *)
+
+      u8 1; (* functions *)
+      let g = gap32 () in
+      let p = pos s in
+      vu32 (Int32.of_int (List.length m.imports + List.length m.funcs));
+      List.iteri (fun i import ->
+        vu32 (Int32.of_int i);
+        string (Ast.string_of_name import.item_name);        
+      ) m.imports;
+      List.iteri (fun i (f:Ast.func) ->
+        vu32 (Int32.of_int (List.length m.imports + i));
+        string f.name;        
+      ) m.funcs;
+      patch_gap32 g (pos s - p);
+
+      u8 2; (* locals *)
+      let g = gap32 () in
+      let p = pos s in
+      (* let all_the_locals = List.fold_left (fun count (f:Ast.func) -> count + List.length f.locals) 0 m.funcs in
+      vu32 (Int32.of_int all_the_locals); *)
+      vu32 (Int32.of_int (List.length m.funcs));
+      List.iteri(fun i f ->
+        vu32 (Int32.of_int (List.length m.imports + i));
+        vu32 (Int32.of_int (List.length f.locals));
+        List.iteri(fun i (name, _) ->
+          vu32 (Int32.of_int i);
+          string name;
+        ) f.locals
+      ) m.funcs;
+
+      patch_gap32 g (pos s - p)
+
+(* 
+      u8 2;
+
+
+      let g = gap32 () in
+      let p = pos s in
+
+      patch_gap32 g (pos s - p) *)
+
+      (* List.iter (fun func -> 
+        
+      ) m.funcs; *)
+      
+
+
+
+    (* https://github.com/WebAssembly/wabt/blob/637e1fdb143aa180d57d87c09e604cb345d11020/src/binary-reader.cc#L1334 *)
+    let name_section module_ = 
+      custom_section "name" name_section_impl module_  true
+
       (* Module *)
     let module_ m =
       u32 0x6d736100l;
@@ -1142,7 +1203,8 @@ let encode m =
       if List.length !code_relocations > 0 then
         relocate_code_section m.funcs;
       if List.length !data_relocations > 0 then
-        relocate_data_section m.funcs
+        relocate_data_section m.funcs;
+      name_section m
   end
   in E.module_ m; 
   encode_result := to_string s

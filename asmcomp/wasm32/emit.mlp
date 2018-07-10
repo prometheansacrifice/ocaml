@@ -39,7 +39,7 @@ open Wasm_types
 
 module VarMap = Map.Make(String)
 
-type local_space = {mutable l_map : (int32 * value_type) VarMap.t; mutable l_count : int32}
+type local_space = {mutable l_map : (int32 * value_type * string) VarMap.t; mutable l_count : int32}
 
 type block_stack = string Stack.t
 (* type local_stack = value_type Stack.t *)
@@ -87,7 +87,7 @@ let bind_local (space:local_space) x value_type =
   if VarMap.mem x space.l_map then
     failwith ("Duplicate:" ^ x);
   let i = space.l_count in
-  space.l_map <- VarMap.add x (space.l_count, value_type) space.l_map;
+  space.l_map <- VarMap.add x (space.l_count, value_type, x) space.l_map;
   space.l_count <- Int32.add space.l_count 1l;
   if space.l_count = 0l then
     failwith "Too many bindings";
@@ -629,9 +629,10 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     (* (emit_expr context arg)
     @
     [Call "jsRaise_i32_i32"] *)
-  | Ccheckbound, [fst; snd] -> (
+  | Ccheckbound, [fst; _snd] -> (
     let fst = (emit_expr context fst) in
-    let snd = (emit_expr context snd) in
+    fst)
+    (* let snd = (emit_expr context snd) in
     let if_ = fst @ snd @ [Compare (I32 I32Op.LtS)] in
     let else_ = snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
 
@@ -642,7 +643,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
         DataSymbol "caml_exn_Invalid_argument";
         Call "jsRaise_i32_unit"
       ], [])])]
-    )
+    ) *)
   | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in
   current_return_type := convert_result (oper_result_type operation);  
@@ -668,7 +669,7 @@ and emit_expr (context:context) (expression:expression) =
   | Cconst_symbol symbol ->
     (      
     try
-      let (_, t) = local context symbol in
+      let (_, t, _) = local context symbol in
       current_return_type := [t];
       (* Stack.push t local_stack; *)
       (* print_local_stack "Cconst_symbol"; *)
@@ -686,7 +687,7 @@ and emit_expr (context:context) (expression:expression) =
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
     (try (
-      let (var, t) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
+      let (var, t, _) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
       current_return_type := [t];
       (* Stack.push t local_stack; *)
       (* print_local_stack "Cvar"; *)
@@ -705,7 +706,7 @@ and emit_expr (context:context) (expression:expression) =
     let let_id = bind_local context binding_name I32Type in    
     current_return_type := [];
     let body = emit_expr context fn_body in
-    
+    print_endline ("Test:" ^ Int32.to_string let_id);
     let result = if result = [] then (
       failwith "Clet - unexpected empty result";
     )
@@ -722,9 +723,10 @@ and emit_expr (context:context) (expression:expression) =
     result
     )
   | Cassign (i, e) -> (
-      let (l, _) = local context (i.Ident.name ^ "_" ^ string_of_int i.Ident.stamp) in
+      let (l, _, _) = local context (i.Ident.name ^ "_" ^ string_of_int i.Ident.stamp) in
       let e = emit_expr context e in
       current_return_type := [];
+      print_endline ("Test 2:" ^ Int32.to_string l);
       (* print_local_stack "Cassign"; *)
       e @
       [SetLocal l]
@@ -888,6 +890,7 @@ and emit_expr (context:context) (expression:expression) =
       | Br _ -> []
       | _ ->
         if List.length remaining = 0 then (
+            print_endline ("Test 3:" ^ Int32.to_string !temp_local);
             [SetLocal !temp_local; Br (Int32.of_int depth)]
           )
           else
@@ -1193,7 +1196,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     let body = fun_body in
     let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
     let locals = ref [] in
-    VarMap.iter (fun _ (_, t) -> locals := !locals @ [t]) context.locals.l_map;
+    VarMap.iter (fun _ (_, t, name) -> locals := !locals @ [(name, t)]) context.locals.l_map;
     let result = {
       name = fun_name;
       ftype = fun_name;

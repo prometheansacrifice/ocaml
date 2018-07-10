@@ -123,7 +123,7 @@ type func =
 {
   name: string;
   ftype : string;
-  locals : value_type list;
+  locals : (string * value_type) list;
   body : instr list;
 }
 
