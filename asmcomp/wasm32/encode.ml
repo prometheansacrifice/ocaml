@@ -367,12 +367,10 @@ let encode m =
 
     let memop {align; offset; _} =             
       vu32 (Int32.of_int align); 
-      (* let p = pos s in
-      code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_LEB (Int32.of_int p, offset)]; *)
       vu32_fixed offset
 
     let var x = vu32 x
-
+    
     let reloc_index x = 
       vu32_fixed x
     
@@ -475,8 +473,7 @@ let encode m =
       | Select -> op 0x1b
       | GetLocal x -> op 0x20; var x
       | SetLocal x -> 
-        op 0x21; 
-        print_endline ("SetLocal x" ^ Int32.to_string x);
+        op 0x21;
         var x
       | TeeLocal x -> op 0x22; var x
       | GetGlobal x ->
@@ -1126,13 +1123,7 @@ let encode m =
     let linking_section data =
       custom_section "linking" symbol_table data (data <> [])
 
-    let name_section_impl m = 
-      (* u8 0; (* module name *)
-      let g = gap32 () in
-      let p = pos s in
-      string "Todo-ModuleName";
-      patch_gap32 g (pos s - p); *)
-
+    let name_section_impl m =       
       u8 1; (* functions *)
       let g = gap32 () in
       let p = pos s in
@@ -1150,8 +1141,6 @@ let encode m =
       u8 2; (* locals *)
       let g = gap32 () in
       let p = pos s in
-      (* let all_the_locals = List.fold_left (fun count (f:Ast.func) -> count + List.length f.locals) 0 m.funcs in
-      vu32 (Int32.of_int all_the_locals); *)
       vu32 (Int32.of_int (List.length m.funcs));
       List.iteri(fun i f ->
         vu32 (Int32.of_int (List.length m.imports + i));
@@ -1161,24 +1150,7 @@ let encode m =
           string name;
         ) f.locals
       ) m.funcs;
-
       patch_gap32 g (pos s - p)
-
-(* 
-      u8 2;
-
-
-      let g = gap32 () in
-      let p = pos s in
-
-      patch_gap32 g (pos s - p) *)
-
-      (* List.iter (fun func -> 
-        
-      ) m.funcs; *)
-      
-
-
 
     (* https://github.com/WebAssembly/wabt/blob/637e1fdb143aa180d57d87c09e604cb345d11020/src/binary-reader.cc#L1334 *)
     let name_section module_ = 
