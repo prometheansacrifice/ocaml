@@ -806,7 +806,7 @@ and emit_expr (context:context) (expression:expression) =
     (* print_local_stack "Csequence"; *)
     a @ b
   | Cifthenelse (if_, then_, else_) ->
-    Stack.push "ifthenelse" block_stack;
+    (* Stack.push "ifthenelse" block_stack; *)
     let i = emit_expr context if_ in
     (* pop_local_stack 1; *)
     current_return_type := [];
@@ -815,13 +815,16 @@ and emit_expr (context:context) (expression:expression) =
     (* print_local_stack "Cifthenelse"; *)
     i @ [If (!current_return_type, t, e)]
   | Cswitch  (sw, ia, ea, _) -> (
+    print_endline ("BlockStack size:" ^ string_of_int (Stack.length block_stack));
     let rec create_block ints remaining =
       match ints, remaining with
       | i :: re, expr :: rest -> (
         current_return_type := [];
         Stack.push (string_of_int i) block_stack;
-        let child_block = create_block re rest in
-        let e = child_block @ emit_expr context expr @ [Br (I32.of_int_u (Stack.length block_stack - 1))] in
+        let child_block = create_block re rest in        
+        let e = child_block @ emit_expr context expr in
+        print_endline ("Br 1 -> " ^ string_of_int (Stack.length block_stack - 1));
+        let e = e @ [Br (I32.of_int_u (Stack.length block_stack - 1))] in
         ignore(Stack.pop block_stack);
         [Block (!current_return_type, e)]
       )
@@ -831,7 +834,7 @@ and emit_expr (context:context) (expression:expression) =
         Stack.push (string_of_int (Array.length ia + 2)) block_stack;
         let tb = BrTable ((List.map (fun f -> Int32.of_int (2 + f)) (Array.to_list ia)), 1l) in
         let e = emit_expr context sw in
-        let result = [Block(!current_return_type, [Block (!current_return_type, [Const (I32 2l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])]);] in
+        let result = [Block(!current_return_type, [Block (!current_return_type, [Unreachable; Const (I32 2l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])]);] in
         ignore(Stack.pop block_stack);
         ignore(Stack.pop block_stack);
         result
@@ -887,7 +890,9 @@ and emit_expr (context:context) (expression:expression) =
       | Br _ -> []
       | _ ->
         if List.length remaining = 0 then (
+          print_endline ("Br 2" ^ string_of_int (Stack.length block_stack - 1));
             if !temp_local <> (-1l) then (
+              
               [SetLocal !temp_local; Br (Int32.of_int depth)]
             )
             else (
@@ -919,6 +924,7 @@ and emit_expr (context:context) (expression:expression) =
       Stack.iter (fun str ->
         position := !position + 1;
         if str = string_of_int i then (
+          print_endline ("Br 0" ^ string_of_int (!position - 1));
           result := [Br (Int32.of_int (!position - 1))]
         )
       ) block_stack;
@@ -1154,7 +1160,8 @@ let begin_assembly () = (
 
 ) *)
 
-let fundecl ({fun_name; fun_args; fun_body; _}) = (  
+let fundecl ({fun_name; fun_args; fun_body; _}) = ( 
+    print_endline fun_name; 
     let context = enter_func () in
     let args = ref [] in
     List.iter (fun (ident, mt) ->
