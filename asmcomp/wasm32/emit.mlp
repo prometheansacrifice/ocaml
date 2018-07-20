@@ -308,22 +308,29 @@ let blockheader_details header =
 let rec to_operations  (context) (expression_list:expression list) (operation:Cmm.operation) : Ast.instr list =     
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
-  | Cextcall (symbol, _mt, _, _), _ -> (            
+  | Cextcall (symbol, mt, _, _), _ -> (            
       let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) f -> 
         let (args, expression_list) = lst in
         let expr = emit_expr context f in
         (* pop_local_stack 1; *)
         (args @ !current_return_type, expression_list @ expr)) ([], []) expression_list)
       in
+      let drop = if Array.length mt = 0 then 
+        (current_return_type := [];
+        [Drop] )
+      else 
+        [] 
+      in
       expression_list
       @
       (if not (func_symbol_exists symbol) then 
         (
-          print_endline "Potentially wrong return type (always saying i32 which is BAD)";
+          print_endline (symbol ^ ": potentially wrong return type (always says i32 which might be BAD)");
           create_import_symbol symbol args [I32Type];
-        [Call symbol])
-      else
-        [Call symbol])
+        [Call symbol] @ drop)
+      else (
+        [Call symbol] @ drop)
+      )      
       )
   | Cload (memory_chunk, _), [el1] -> (
       let align = 0 in
@@ -366,12 +373,18 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
         (match f with 
         | Cconst_symbol symbol ->           
           let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
-          (if is_closure then [FuncSymbol symbol] else [DataSymbol symbol]);
+          (if is_closure then (current_return_type := [I32Type]; [FuncSymbol symbol]) else [DataSymbol symbol]);
           
-        | _ as e -> emit_expr context e)
-        @
-        [Store {ty = Types.I32Type; align = 0; offset = 0l; sz = None}])        
+        | _ as e -> emit_expr context e))
         in
+        let t = if !current_return_type = [] then 
+            I32Type
+          else 
+            List.hd !current_return_type
+        in
+        let result = result @ [Store {ty = t; align = 0; offset = 0l; sz = None}]     
+        in
+        current_return_type := [];
         (* ignore(Stack.pop local_stack);         *)
         position := !position + Nativeint.to_int word_size;
         result
@@ -386,8 +399,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       @
       [GetLocal local_] (* return the value after the OCaml block header *)      
       in 
-      (* Stack.push I32Type local_stack; *)
-      (* print_local_stack "Calloc, Cblockheader (header, _) :: _ "; *)
       result
     )
   | Cstore (memory_chunk, _), [el1; el2] ->
@@ -395,21 +406,22 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     let align = 0 in
     let offset = 0l in
     let expression_list = (emit_expr context el1) @ (emit_expr context el2) in
+    let rt = List.hd !current_return_type in   
+    print_endline "Store 4";
     let instr = Ast.Types.(match memory_chunk with
     | Byte_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
     | Byte_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
     | Sixteen_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem16}]
     | Sixteen_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem16}]
-    | Thirtytwo_unsigned -> [Store {ty = I32Type; align; offset; sz = None}]
-    | Thirtytwo_signed -> [Store {ty = I32Type; align; offset; sz = None}]
-    | Word_int -> [Store {ty = I32Type; align; offset; sz = None}]
-    | Word_val -> [Store {ty = I32Type; align; offset; sz = None}]
+    | Thirtytwo_unsigned -> [Store {ty = rt; align; offset; sz = None}]
+    | Thirtytwo_signed -> [Store {ty = rt; align; offset; sz = None}]
+    | Word_int -> [Store {ty = rt; align; offset; sz = None}]
+    | Word_val -> [Store {ty = rt; align; offset; sz = None}]
     | Single -> [Store {ty = F32Type; align; offset; sz = None}]
     | Double -> [Store {ty = F32Type; align; offset; sz = None}]
     | Double_u -> [Store {ty = F32Type; align; offset; sz = None}])
     in
     current_return_type := [];
-    (* print_local_stack "Cstore"; *)
     expression_list @ instr
   | Caddv, [fst; snd] (* pointer addition that produces a [Val] (well-formed Caml value) *)    
   | Caddi, [fst; snd]    
@@ -624,12 +636,13 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
-  | Craise _, _ -> 
-    print_endline "CRAISE NOT SUPPORTED YET :-(";
-    [] (* FIX ME *)
-    (* (emit_expr context arg)
-    @
-    [Call "jsRaise_i32_i32"] *)
+  | Craise _, [arg] ->     
+    let x = (emit_expr context arg) in
+
+    current_return_type := [I32Type];
+    
+    x @
+    [Call "jsRaise_i32_i32"]
   | Ccheckbound, [fst; snd] -> 
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in    
@@ -672,6 +685,7 @@ and emit_expr (context:context) (expression:expression) =
       current_return_type := [t];
       (* Stack.push t local_stack; *)
       (* print_local_stack "Cconst_symbol"; *)
+      print_endline ("CALL SOMETHING YO:" ^ symbol);
       [Call symbol]
     with
     | _ -> 
@@ -703,7 +717,6 @@ and emit_expr (context:context) (expression:expression) =
     let let_id = bind_local context binding_name I32Type in    
     
     let result = emit_expr context arg in
-    
     current_return_type := [];
     let body = emit_expr context fn_body in
     let result = if result = [] then (
@@ -711,8 +724,6 @@ and emit_expr (context:context) (expression:expression) =
     )
     else result
     in
-    (* Stack.push I32Type local_stack;     *)
-    (* print_local_stack "Clet"; *)
     let result = result
     @
     [SetLocal let_id]
@@ -751,7 +762,8 @@ and emit_expr (context:context) (expression:expression) =
     (* print_local_stack "Ctuple"; *)
     result
     
-  | Cop (Capply _, (Cop (Cload _ as op, el, _))::tl, _) -> (    
+  | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (    
+    print_endline "apply 1";
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
@@ -764,18 +776,24 @@ and emit_expr (context:context) (expression:expression) =
         lst
     ) [] tl in
     let load_action = to_operations context el op in
+    
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
     let name_ = "wasm_unique_name_" ^ string_of_int counter in
     let type_:Ast.type_ = {name = name_; details = FuncType (!fn_args, [I32Type])} in    
     let w = !wasm_module in
+    let drop = (if Array.length mt = 0 then 
+      (current_return_type := [];
+      [Drop]) else []) in    
     wasm_module := Ast.{w with types = w.types @ [type_]};
     (* print_local_stack "Cop (Capply _, (Cop (Cload _ as op, el, _))::tl, _)"; *)
     expression_list @
     load_action @
-    [CallIndirect name_]
+    [CallIndirect name_] @ drop
     )
-  | Cop (Capply _mt, (Cconst_symbol hd)::tl, _) -> (    
+  | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (
+    print_endline ("apply:" ^ hd ^ (if Array.length mt = 0 then "()" else " (+1)"));  
+
     let (args, expression_list) = List.fold_left (fun lst f -> 
       let (args, expression_list) = lst in      
       let expr = emit_expr context f in
@@ -791,13 +809,15 @@ and emit_expr (context:context) (expression:expression) =
         | _ -> assert false
       );
     print_local_stack "Cop (Capply _mt, (Cconst_symbol hd)::tl, _)"; *)
-    expression_list @
-    (if func_symbol_exists hd then    
-      [Call hd]
-    else (     
-      create_import_symbol hd args [I32Type];
-      [Call hd])
-    ))
+    let drop = (if Array.length mt = 0 then 
+      (current_return_type := [];
+      [Drop]) else []) in    
+    (if not (func_symbol_exists hd) then (
+      create_import_symbol hd args [I32Type])
+    );
+    print_endline ("CALL SOMETHING YO 2:" ^ hd);
+    expression_list @ [Call hd] @ drop
+  )
   | Cop (operation, expression_list, _) ->  
     to_operations context expression_list operation
   | Csequence (e1, e2) ->        
@@ -806,32 +826,27 @@ and emit_expr (context:context) (expression:expression) =
     (* print_local_stack "Csequence"; *)
     a @ b
   | Cifthenelse (if_, then_, else_) ->
-    (* Stack.push "ifthenelse" block_stack; *)
     let i = emit_expr context if_ in
-    (* pop_local_stack 1; *)
     current_return_type := [];
     let t = emit_expr context then_ in    
     let e = emit_expr context else_ in
-    (* print_local_stack "Cifthenelse"; *)
     i @ [If (!current_return_type, t, e)]
   | Cswitch  (sw, ia, ea, _) -> (
-    print_endline ("BlockStack size:" ^ string_of_int (Stack.length block_stack));
     let rec create_block ints remaining =
       match ints, remaining with
-      | i :: re, expr :: rest -> (
+      | _i :: re, expr :: rest -> (
         current_return_type := [];
-        Stack.push (string_of_int i) block_stack;
+        Stack.push "zzz" block_stack;
         let child_block = create_block re rest in        
         let e = child_block @ emit_expr context expr in
-        print_endline ("Br 1 -> " ^ string_of_int (Stack.length block_stack - 1));
-        let e = e @ [Br (I32.of_int_u (Stack.length block_stack - 1))] in
+        (* let e = e @ (match expr with | Cexit _ -> [] | _ ->  [Br (I32.of_int_u (Stack.length block_stack - 1))]) in *)
         ignore(Stack.pop block_stack);
         [Block (!current_return_type, e)]
       )
       | _, [] -> (
         current_return_type := [];
-        Stack.push (string_of_int (Array.length ia + 1)) block_stack;
-        Stack.push (string_of_int (Array.length ia + 2)) block_stack;
+        Stack.push "a1" block_stack;
+        Stack.push "a2" block_stack;
         let tb = BrTable ((List.map (fun f -> Int32.of_int (2 + f)) (Array.to_list ia)), 1l) in
         let e = emit_expr context sw in
         let result = [Block(!current_return_type, [Block (!current_return_type, [Unreachable; Const (I32 2l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])]);] in
@@ -868,52 +883,33 @@ and emit_expr (context:context) (expression:expression) =
         [Block (!current_return_type, e)]
     in
     let blocks = create_block with_ in
-    let temp_local = ref (-1l) in
     let rec fix_blocks depth result = function
-    | Block (rt, el) :: remaining -> (
-        if (depth = -1 && List.length rt > 0) then (
-          let counter = !unique_name_counter in
-          unique_name_counter := !unique_name_counter + 1;
-          temp_local := bind_local context ("return_value_" ^ string_of_int counter) (List.nth rt 0)          
-        );
-        fix_blocks depth (result @ [Block ([], fix_blocks (depth + 1) [] el)]) remaining
+    | Block (rt, el) :: remaining -> (        
+        fix_blocks depth (result @ [Block (rt, fix_blocks (depth + 1) [] el)]) remaining
       )
-    | If (_, t, e) :: remaining -> (
-        fix_blocks depth (result @ [If ([], fix_blocks (depth + 1) [] t, fix_blocks (depth + 1) [] e)]) remaining
+    | If (rt, t, e) :: remaining -> (
+        fix_blocks depth (result @ [If (rt, fix_blocks (depth + 1) [] t, fix_blocks (depth + 1) [] e)]) remaining
       )
-    | Loop ([], e) :: remaining -> (
-      fix_blocks depth (result @ [Loop ([], fix_blocks (depth + 1) [] e)]) remaining
+    | Loop (rt, e) :: remaining -> (
+      fix_blocks depth (result @ [Loop (rt, fix_blocks (depth + 1) [] e)]) remaining
       )
     | _ as item :: remaining -> (
       let add = (match item with
       | BrTable _
       | Br _ -> []
       | _ ->
-        if List.length remaining = 0 then (
-          print_endline ("Br 2" ^ string_of_int (Stack.length block_stack - 1));
-            if !temp_local <> (-1l) then (
-              
-              [SetLocal !temp_local; Br (Int32.of_int depth)]
-            )
-            else (
-              [Br (Int32.of_int depth)]
-            )
-          )
-          else
-            []
+        if List.length remaining = 0 then (           
+          [Br (Int32.of_int depth)]          
+        )
+        else
+          []
         )
       in
       fix_blocks depth (result @ [item] @ add) remaining
     )
     | [] -> result
     in
-    let f = (fix_blocks (-1) [] blocks) in
-    let x = if !temp_local <> (-1l) then
-      [GetLocal !temp_local]
-    else
-      []
-    in
-    f @ x)
+    fix_blocks (-1) [] blocks)
   | Cexit (i, el) ->
     (
       let el = List.fold_left (fun all e ->
@@ -923,11 +919,13 @@ and emit_expr (context:context) (expression:expression) =
       let result = ref [] in
       Stack.iter (fun str ->
         position := !position + 1;
-        if str = string_of_int i then (
-          print_endline ("Br 0" ^ string_of_int (!position - 1));
-          result := [Br (Int32.of_int (!position - 1))]
+        if str = string_of_int i then (          
+          print_endline "YES";
+          result := [Const (I32 0l); Br (Int32.of_int (!position - 1))]
         )
       ) block_stack;
+      
+      current_return_type := [I32Type];
       el @
       !result
     )
@@ -1161,7 +1159,7 @@ let begin_assembly () = (
 ) *)
 
 let fundecl ({fun_name; fun_args; fun_body; _}) = ( 
-    print_endline fun_name; 
+    (* print_endline fun_name;  *)
     let context = enter_func () in
     let args = ref [] in
     List.iter (fun (ident, mt) ->
@@ -1176,7 +1174,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       args := [Types.I32Type] @ !args;      
     ) (List.rev fun_args);
 
-    (* print_string (fun_name ^ " - ");
+    print_string (fun_name ^ " - ");
 
     List.iter Ident.(fun (ident, mt) ->
       print_string (" @" ^ ident.name ^ ":");
@@ -1186,20 +1184,16 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       | [|Int|] -> print_string "int"
       | [|Float|] -> print_string "float"
       | _ -> failwith "Unexpected combination of machtypes"
-    ) fun_args; *)
+    ) fun_args;
     
+    print_endline "";
+
     create_func_symbol fun_name (0, 0);
     
-    (* remove unit return value *)
-    let rec remove_last_unit fun_body =
-      match fun_body with            
-      | Csequence (expr, Cconst_int 1) -> expr
-      | Csequence (expr1, Csequence (a, b)) -> Csequence (expr1, remove_last_unit (Csequence (a, b)))
-      | _ as e -> e
-    in
-    let fun_body = remove_last_unit fun_body in    
+    (* remove unit return value *)    
     let fun_body = emit_expr context fun_body in     
     let body = fun_body in
+    print_endline ("Should I return something:" ^ string_of_int (List.length !current_return_type));
     let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
     let temp_locals = ref [] in
     VarMap.iter (fun _ (i, t, name) -> 
