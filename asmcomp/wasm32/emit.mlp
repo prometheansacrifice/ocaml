@@ -171,10 +171,7 @@ let bind_local (c : context) name value_type = bind_local c.locals name value_ty
 
 let current_return_type = ref []
 
-let enter_func () = (
-  current_return_type := [];
-  {locals = empty_locals()}
-)
+
 
 let unique_name_counter = ref 0
 
@@ -305,6 +302,74 @@ let blockheader_details header =
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
 
+let branch_calls: (int32 * value_type list) list ref = ref []
+
+let branch_call pos crt =
+  branch_calls := !branch_calls @ [(pos, crt)];
+  Br pos
+
+let is_target () = 
+  let f = List.find_opt (fun (f, _) -> f = 0l) !branch_calls in
+  match f with 
+  | Some (_, t) -> t
+  | None -> []
+
+let decrease_branch_calls () =
+   branch_calls := List.fold_left (fun all (br, crt) -> 
+    let new_br = Int32.sub br 1l in
+    print_endline "decrease_branch_calls:";
+    if new_br <> -1l then (
+      print_endline (" - " ^ Int32.to_string new_br);
+      all @ [(new_br, crt)])
+    else 
+      all
+  ) [] !branch_calls
+
+let enter_func () = (
+  current_return_type := [];
+  branch_calls := [];
+  {locals = empty_locals()}
+)
+
+let structured_instruction name e s =
+  Stack.push name block_stack;  
+  let expr = e () in
+  let is_target = is_target () in
+  let result = s is_target !current_return_type expr in
+  decrease_branch_calls();
+  ignore(Stack.pop block_stack);
+  result
+
+(*
+  TODO: 
+  - call outer thingy if no `Br` is present
+*)
+let block_instruction name e = 
+  structured_instruction 
+    name
+    e
+    (fun i _t e ->
+      [Block ((if List.length i > 0 then i else []), e)]
+    )   
+
+let if_instruction name e =
+  structured_instruction 
+    name
+    e
+    (fun _i t e -> 
+      (* let (_, t) = i in *)
+      let (i, th, e) = e in
+      i @ [If (t, th, e)]
+    )
+
+let loop_instruction e = 
+  structured_instruction
+    "loop"
+    e
+    (fun _ _ e ->
+      [Loop ([], e)]
+    )
+
 let rec to_operations  (context) (expression_list:expression list) (operation:Cmm.operation) : Ast.instr list =     
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
@@ -407,7 +472,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     let offset = 0l in
     let expression_list = (emit_expr context el1) @ (emit_expr context el2) in
     let rt = List.hd !current_return_type in   
-    print_endline "Store 4";
     let instr = Ast.Types.(match memory_chunk with
     | Byte_unsigned -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
     | Byte_signed -> [Store {ty = I32Type; align; offset; sz = Some Mem8}]
@@ -646,17 +710,30 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   | Ccheckbound, [fst; snd] -> 
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in    
-    let if_ = fst @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
-    let else_ = snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in    
-    let result = if_ @ [If ([], [
-      DataSymbol "caml_exn_Invalid_argument";
-      Call "jsRaise_i32_unit"
-    ],else_ @ [If ([], [
-        DataSymbol "caml_exn_Invalid_argument";
-        Call "jsRaise_i32_unit"
-      ], [])])]
-    in
-    result    
+    
+    if_instruction 
+      "ccheckbound_1"
+      (fun () ->         
+        current_return_type := [];
+        let i = fst @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
+        current_return_type := [];
+        let t = [
+          DataSymbol "caml_exn_Invalid_argument";
+          Call "jsRaise_i32_unit"
+        ] in
+        current_return_type := [];
+        let e = if_instruction
+          "ccheckbound_2"
+          (fun () -> 
+            (snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)], [
+              DataSymbol "caml_exn_Invalid_argument";
+              Call "jsRaise_i32_unit"
+            ], [])
+          )
+          
+          in
+        (i, t, e)
+      )            
   | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in
   current_return_type := convert_result (oper_result_type operation);  
@@ -685,7 +762,6 @@ and emit_expr (context:context) (expression:expression) =
       current_return_type := [t];
       (* Stack.push t local_stack; *)
       (* print_local_stack "Cconst_symbol"; *)
-      print_endline ("CALL SOMETHING YO:" ^ symbol);
       [Call symbol]
     with
     | _ -> 
@@ -763,7 +839,6 @@ and emit_expr (context:context) (expression:expression) =
     result
     
   | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (    
-    print_endline "apply 1";
     let fn_args = ref [] in
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
@@ -791,9 +866,7 @@ and emit_expr (context:context) (expression:expression) =
     load_action @
     [CallIndirect name_] @ drop
     )
-  | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (
-    print_endline ("apply:" ^ hd ^ (if Array.length mt = 0 then "()" else " (+1)"));  
-
+  | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (    
     let (args, expression_list) = List.fold_left (fun lst f -> 
       let (args, expression_list) = lst in      
       let expr = emit_expr context f in
@@ -815,7 +888,6 @@ and emit_expr (context:context) (expression:expression) =
     (if not (func_symbol_exists hd) then (
       create_import_symbol hd args [I32Type])
     );
-    print_endline ("CALL SOMETHING YO 2:" ^ hd);
     expression_list @ [Call hd] @ drop
   )
   | Cop (operation, expression_list, _) ->  
@@ -823,46 +895,67 @@ and emit_expr (context:context) (expression:expression) =
   | Csequence (e1, e2) ->        
     let a = emit_expr context e1 in
     let b = emit_expr context e2 in
-    (* print_local_stack "Csequence"; *)
     a @ b
-  | Cifthenelse (if_, then_, else_) ->
-    let i = emit_expr context if_ in
+  | Cifthenelse (if_2, then_, else_) ->    
     current_return_type := [];
-    let t = emit_expr context then_ in    
-    let e = emit_expr context else_ in
-    i @ [If (!current_return_type, t, e)]
-  | Cswitch  (sw, ia, ea, _) -> (
+    let i = emit_expr context if_2 in
+    if_instruction 
+      "ifthenelse"
+      (fun () ->         
+        current_return_type := [];
+        let t = emit_expr context then_ in
+        let ty1 = !current_return_type in
+        current_return_type := [];
+        let e = emit_expr context else_ in
+        let ty2 = !current_return_type in
+        if (ty1 <> ty2) then (
+          current_return_type := [];
+        );
+        (i, t, e)
+      )            
+  | Cswitch  (sw, ia, ea, _) -> ( 
+    let ea = Array.to_list ea in
+    let ia = Array.to_list ia in
     let rec create_block ints remaining =
       match ints, remaining with
-      | _i :: re, expr :: rest -> (
-        current_return_type := [];
-        Stack.push "zzz" block_stack;
+      (* | _i :: re, expr :: rest when List.length remaining = List.length ea -> (
         let child_block = create_block re rest in        
         let e = child_block @ emit_expr context expr in
-        (* let e = e @ (match expr with | Cexit _ -> [] | _ ->  [Br (I32.of_int_u (Stack.length block_stack - 1))]) in *)
-        ignore(Stack.pop block_stack);
-        [Block (!current_return_type, e)]
+        let e = e @ (match expr with | Cexit _ -> [] | _ ->  [Br (I32.of_int_u (Stack.length block_stack - 1))]) in        
+        e
+        ); *)
+      | _i :: re, expr :: rest -> (
+        current_return_type := [];
+        block_instruction 
+          "cswitch-case" 
+          (fun () -> 
+            let child_block = create_block re rest in        
+            let e = child_block @ emit_expr context expr in
+            let e = e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (I32.of_int_u (Stack.length block_stack)) !current_return_type]) in
+            e
+          )          
+        @ (if (List.length ia = List.length remaining) then [Unreachable] else [])
       )
       | _, [] -> (
         current_return_type := [];
-        Stack.push "a1" block_stack;
-        Stack.push "a2" block_stack;
-        let tb = BrTable ((List.map (fun f -> Int32.of_int (2 + f)) (Array.to_list ia)), 1l) in
-        let e = emit_expr context sw in
-        let result = [Block(!current_return_type, [Block (!current_return_type, [Unreachable; Const (I32 2l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])]);] in
-        ignore(Stack.pop block_stack);
-        ignore(Stack.pop block_stack);
-        result
+        block_instruction 
+          "cswitch-main"
+          (fun () -> 
+            let tb = BrTable (List.map (fun f -> Int32.of_int (1 + f)) ia, 0l) in
+            let e = emit_expr context sw in
+            current_return_type := [];
+            [Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb];            
+          )
       )
       | _ -> failwith "Should not happen..."
-    in create_block (Array.to_list ia) (Array.to_list ea)
+    in create_block ia ea
     )
   | Cloop e ->
-    Stack.push "loop" block_stack;
-    let expr = emit_expr context e in
-    ignore(Stack.pop block_stack);
-    let expr = expr @ [Br 0l] in
-    [Loop ([], expr)]
+    loop_instruction 
+      (fun () -> 
+        (emit_expr context e)
+        @ [branch_call 0l []]
+      )    
   | Ccatch  (_, with_, body) -> (  
     let rec create_block = function
       | (i, il, expr) :: rest -> (
@@ -871,45 +964,21 @@ and emit_expr (context:context) (expression:expression) =
           ignore(bind_local context (i.Ident.name ^ "_" ^ string_of_int i.Ident.stamp) I32Type)
         )) il; 
         current_return_type := [];
-        Stack.push (string_of_int i) block_stack;
-        let child_block = create_block rest in
-        let e = child_block @ emit_expr context expr in
-        ignore(Stack.pop block_stack);
-        [Block (!current_return_type, e)]
+        block_instruction
+          (string_of_int i)
+          (fun () ->
+            let child_block = create_block rest in
+            child_block @ emit_expr context expr
+          )
+        
       )
       | [] ->
         current_return_type := [];
-        let e = emit_expr context body in
-        [Block (!current_return_type, e)]
+        block_instruction 
+          "0"
+          (fun () ->  emit_expr context body)
     in
-    let blocks = create_block with_ in
-    let rec fix_blocks depth result = function
-    | Block (rt, el) :: remaining -> (        
-        fix_blocks depth (result @ [Block (rt, fix_blocks (depth + 1) [] el)]) remaining
-      )
-    | If (rt, t, e) :: remaining -> (
-        fix_blocks depth (result @ [If (rt, fix_blocks (depth + 1) [] t, fix_blocks (depth + 1) [] e)]) remaining
-      )
-    | Loop (rt, e) :: remaining -> (
-      fix_blocks depth (result @ [Loop (rt, fix_blocks (depth + 1) [] e)]) remaining
-      )
-    | _ as item :: remaining -> (
-      let add = (match item with
-      | BrTable _
-      | Br _ -> []
-      | _ ->
-        if List.length remaining = 0 then (           
-          [Br (Int32.of_int depth)]          
-        )
-        else
-          []
-        )
-      in
-      fix_blocks depth (result @ [item] @ add) remaining
-    )
-    | [] -> result
-    in
-    fix_blocks (-1) [] blocks)
+    create_block with_)
   | Cexit (i, el) ->
     (
       let el = List.fold_left (fun all e ->
@@ -918,14 +987,12 @@ and emit_expr (context:context) (expression:expression) =
       let position = ref 0 in
       let result = ref [] in
       Stack.iter (fun str ->
-        position := !position + 1;
-        if str = string_of_int i then (          
-          print_endline "YES";
-          result := [Const (I32 0l); Br (Int32.of_int (!position - 1))]
-        )
+        if str = string_of_int i then ( 
+          result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]
+        );
+        position := !position + 1
       ) block_stack;
       
-      current_return_type := [I32Type];
       el @
       !result
     )
@@ -1174,7 +1241,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       args := [Types.I32Type] @ !args;      
     ) (List.rev fun_args);
 
-    print_string (fun_name ^ " - ");
+    (* print_string (fun_name ^ " - ");
 
     List.iter Ident.(fun (ident, mt) ->
       print_string (" @" ^ ident.name ^ ":");
@@ -1186,14 +1253,17 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       | _ -> failwith "Unexpected combination of machtypes"
     ) fun_args;
     
-    print_endline "";
+    print_endline ""; *)
 
     create_func_symbol fun_name (0, 0);
     
     (* remove unit return value *)    
     let fun_body = emit_expr context fun_body in     
+    if (Stack.length block_stack <> 0) then (
+      failwith "Stack length doesn't equal 0 for some reason..."
+    );
     let body = fun_body in
-    print_endline ("Should I return something:" ^ string_of_int (List.length !current_return_type));
+    (* print_endline ("Should I return something:" ^ string_of_int (List.length !current_return_type)); *)
     let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
     let temp_locals = ref [] in
     VarMap.iter (fun _ (i, t, name) -> 
