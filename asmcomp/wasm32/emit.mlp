@@ -142,6 +142,7 @@ let create_func_symbol symbol mt = (* TODO: move to encode *)
 let create_import_symbol name args result =
   if name = "" then failwith "Name can't be empty";  
   if not (func_symbol_exists name) then (    
+    print_endline ("Create an import for:" ^ name ^ ": " ^ string_of_int (List.length args) ^ " -> " ^ string_of_int (List.length result));
     let w = !wasm_module in
     wasm_module := {w with 
       symbols = w.symbols @ [{
@@ -305,6 +306,7 @@ let blockheader_details header =
 let branch_calls: (int32 * value_type list) list ref = ref []
 
 let branch_call pos crt =
+  print_endline ("crt:" ^ string_of_int (List.length crt));
   branch_calls := !branch_calls @ [(pos, crt)];
   Br pos
 
@@ -331,6 +333,18 @@ let enter_func () = (
   {locals = empty_locals()}
 )
 
+let find_top_ccatch () = (
+  let top_catch = ref None in
+  let depth = ref 0 in
+  Stack.iter (fun n -> 
+    if n = "ccatch" then (
+      top_catch := Some !depth
+    );
+    depth := !depth + 1;
+  ) block_stack;
+  !top_catch;
+)
+
 let structured_instruction name e s =
   Stack.push name block_stack;  
   let expr = e () in
@@ -341,9 +355,19 @@ let structured_instruction name e s =
   result
 
 (*
-  TODO: 
-  - call outer thingy if no `Br` is present
+  At several places OCaml has implicit branch calls that need to be made 
+  explicit for wasm.
 *)
+let add_additional_br e depth crt = 
+  let last_item = List.hd (List.rev e) in
+  e @ (match last_item with
+  | Block _
+  | If _ 
+  | Loop _
+  | BrTable _
+  | Br _  -> []
+  | _ -> [branch_call (I32.of_int_s (depth - 1)) crt])
+
 let block_instruction name e = 
   structured_instruction 
     name
@@ -390,10 +414,11 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       @
       (if not (func_symbol_exists symbol) then 
         (
-          print_endline (symbol ^ ": potentially wrong return type (always says i32 which might be BAD)");
+          print_endline (symbol ^ " (args: " ^ string_of_int (List.length args) ^ "): potentially wrong return type (always says i32 which might be BAD)");
           create_import_symbol symbol args [I32Type];
         [Call symbol] @ drop)
       else (
+        print_endline ("wait what...:" ^ symbol);
         [Call symbol] @ drop)
       )      
       )
@@ -425,6 +450,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     )
   | Calloc, Cblockheader (header, _) :: _ -> (
       let (word_size, tag) = blockheader_details header in
+      print_endline ("Tag is:" ^ Nativeint.to_string tag ^ ", size:" ^ Nativeint.to_string word_size);
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) I32Type in
@@ -739,13 +765,16 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   current_return_type := convert_result (oper_result_type operation);  
   result
 and emit_expr (context:context) (expression:expression) =
+  print_endline "emit expr";
   match expression with
   | Cconst_int i -> 
     (* Stack.push I32Type local_stack; *)
     (* print_local_stack "Cconst_int"; *)
+    print_endline "int";
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s i))]
   | Cconst_natint i -> 
+    print_endline "nint";
     (* Stack.push I32Type local_stack; *)
     (* print_local_stack "Cconst_natint"; *)
     current_return_type := [I32Type];
@@ -757,6 +786,7 @@ and emit_expr (context:context) (expression:expression) =
     [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
     (      
+      print_endline "sint";
     try
       let (_, t, _) = local context symbol in
       current_return_type := [t];
@@ -775,6 +805,7 @@ and emit_expr (context:context) (expression:expression) =
     (* print_local_stack "Cblockheader"; *)
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
+    print_endline "cvar";
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "_" ^ string_of_int ident.Ident.stamp) in
       
@@ -809,6 +840,7 @@ and emit_expr (context:context) (expression:expression) =
     result
     )
   | Cassign (i, e) -> (
+      print_endline "assign";
       let name = (i.Ident.name ^ "_" ^ string_of_int i.Ident.stamp) in
       let (l, _, _) = local context name in
       let e = emit_expr context e in
@@ -833,6 +865,7 @@ and emit_expr (context:context) (expression:expression) =
     [
      Binary (I32 I32Op.Add)]     *)
   | Ctuple el ->
+    print_endline "CTUPLE";
     let result = List.fold_left (fun lst f -> 
       lst @ (emit_expr context f)) [] el in
     (* print_local_stack "Ctuple"; *)
@@ -891,8 +924,15 @@ and emit_expr (context:context) (expression:expression) =
     expression_list @ [Call hd] @ drop
   )
   | Cop (operation, expression_list, _) ->  
+    print_endline "cop";
     to_operations context expression_list operation
+  | Csequence (Csequence(e1, Ctuple ([])), Cconst_int 1) -> (
+      print_endline "csequence";
+    let a = emit_expr context e1 in    
+    a @ [Drop; Const (I32 1l)]
+  )       
   | Csequence (e1, e2) ->        
+    print_endline "csequence";
     let a = emit_expr context e1 in
     let b = emit_expr context e2 in
     a @ b
@@ -910,7 +950,25 @@ and emit_expr (context:context) (expression:expression) =
         let ty2 = !current_return_type in
         if (ty1 <> ty2) then (
           current_return_type := [];
-        );
+        );       
+        let top_ccatch = find_top_ccatch () in
+        let (t,e) = match top_ccatch with 
+        | Some s -> 
+          let t = 
+            if List.length t > 0 then
+              add_additional_br t s ty1
+            else
+              t
+          in              
+          let e = 
+            if List.length e > 0 then
+              add_additional_br e s ty2
+            else 
+              e
+          in
+          (t, e)
+        | None -> (t, e)
+        in
         (i, t, e)
       )            
   | Cswitch  (sw, ia, ea, _) -> ( 
@@ -932,14 +990,14 @@ and emit_expr (context:context) (expression:expression) =
             let child_block = create_block re rest in        
             let e = child_block @ emit_expr context expr in
             let e = e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (I32.of_int_u (Stack.length block_stack)) !current_return_type]) in
-            e
+            e                        
           )          
         @ (if (List.length ia = List.length remaining) then [Unreachable] else [])
       )
       | _, [] -> (
         current_return_type := [];
         block_instruction 
-          "cswitch-main"
+          "cswitch-main" 
           (fun () -> 
             let tb = BrTable (List.map (fun f -> Int32.of_int (1 + f)) ia, 0l) in
             let e = emit_expr context sw in
@@ -968,15 +1026,23 @@ and emit_expr (context:context) (expression:expression) =
           (string_of_int i)
           (fun () ->
             let child_block = create_block rest in
-            child_block @ emit_expr context expr
-          )
-        
+            let e  = child_block @ emit_expr context expr in    
+            let top_ccatch = find_top_ccatch () in
+            let length =        
+              match top_ccatch with 
+              | Some s -> s
+              | None -> 1
+            in
+            add_additional_br e length !current_return_type
+          )        
       )
       | [] ->
         current_return_type := [];
         block_instruction 
-          "0"
-          (fun () ->  emit_expr context body)
+          "ccatch"
+          (fun () ->  
+            emit_expr context body
+          )
     in
     create_block with_)
   | Cexit (i, el) ->
@@ -1241,7 +1307,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       args := [Types.I32Type] @ !args;      
     ) (List.rev fun_args);
 
-    (* print_string (fun_name ^ " - ");
+    print_string (fun_name ^ " - ");
 
     List.iter Ident.(fun (ident, mt) ->
       print_string (" @" ^ ident.name ^ ":");
@@ -1253,7 +1319,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       | _ -> failwith "Unexpected combination of machtypes"
     ) fun_args;
     
-    print_endline ""; *)
+    print_endline "";
 
     create_func_symbol fun_name (0, 0);
     
@@ -1296,7 +1362,11 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
                                };
 )
 and data dl = (
-    if List.length dl > 0 then (        
+    if List.length dl > 0 && (List.exists (fun x -> 
+    match x with 
+    | Csymbol_address _ -> false
+    | _ -> true
+    ) dl) then (        
         let init = ref [] in
         let start_offset = !global_offset in
         (* let data_id = ref 0l in *)
