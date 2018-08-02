@@ -306,7 +306,6 @@ let blockheader_details header =
 let branch_calls: (int32 * value_type list) list ref = ref []
 
 let branch_call pos crt =
-  print_endline ("crt:" ^ string_of_int (List.length crt));
   branch_calls := !branch_calls @ [(pos, crt)];
   Br pos
 
@@ -374,7 +373,7 @@ let block_instruction name e =
     e
     (fun i _t e ->
       [Block ((if List.length i > 0 then i else []), e)]
-    )   
+    )
 
 let if_instruction name e =
   structured_instruction 
@@ -1047,6 +1046,7 @@ and emit_expr (context:context) (expression:expression) =
     create_block with_)
   | Cexit (i, el) ->
     (
+      current_return_type := [];
       let el = List.fold_left (fun all e ->
         all @ (emit_expr context e)
       ) [] el in
@@ -1054,6 +1054,7 @@ and emit_expr (context:context) (expression:expression) =
       let result = ref [] in
       Stack.iter (fun str ->
         if str = string_of_int i then ( 
+          print_endline ("CEXIT TO: " ^ str ^ "=> " ^ (string_of_int (!position - 1)));
           result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]
         );
         position := !position + 1
