@@ -370,7 +370,8 @@ let block_instruction name e =
     name
     e
     (fun i _t e ->
-      [Block ((if List.length i > 0 then i else []), e)]
+      
+      [Block ((if List.length i > 0 then i else if Stack.length block_stack = 1 then !current_return_type else  []), e)]
     )
 
 let if_instruction name e =
@@ -969,13 +970,15 @@ and emit_expr (context:context) (expression:expression) =
         | Some s -> 
           let t = 
             if List.length t > 0 then
-              add_additional_br t s ty1
+              (current_return_type := [];
+              add_additional_br t s ty1)
             else
               t
           in              
           let e = 
             if List.length e > 0 then
-              add_additional_br e s ty2
+              (current_return_type := [];
+              add_additional_br e s ty2)
             else 
               e
           in
@@ -1050,7 +1053,7 @@ and emit_expr (context:context) (expression:expression) =
           )        
       )
       | [] ->
-        current_return_type := [];
+        (* current_return_type := []; *)
         block_instruction 
           "ccatch"
           (fun () ->  
