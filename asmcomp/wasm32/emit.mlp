@@ -350,6 +350,16 @@ let structured_instruction name e s =
   ignore(Stack.pop block_stack);
   result
 
+let is_in_ite () = 
+  let is_inside = ref false in
+  let iter = ref 0 in
+  Stack.iter (fun n -> 
+    (if !iter = 1 && n = "ifthenelse" then 
+      is_inside := true);
+    iter := !iter + 1;
+  ) block_stack;
+  !is_inside
+
 (*
   At several places OCaml has implicit branch calls that need to be made 
   explicit for wasm.
@@ -368,9 +378,14 @@ let block_instruction name e =
   structured_instruction 
     name
     e
-    (fun _i _t e ->
-      
-      [Block ((if Stack.length block_stack = 1 then !current_return_type else  []), e)]
+    (fun i t e ->
+      print_endline "needs a better check here...";
+      [Block ((   
+        if (List.length i > 0 && is_in_ite ()) then 
+          t   
+        else if Stack.length block_stack = 1 then 
+          !current_return_type 
+        else  []), e)]
     )
 
 let if_instruction name e =
