@@ -125,6 +125,7 @@ type func =
   ftype : string;
   locals : (string * value_type) list;
   body : instr list;
+  no_of_args: int;
 }
 
 

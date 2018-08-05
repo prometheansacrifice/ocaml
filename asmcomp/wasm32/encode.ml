@@ -819,10 +819,19 @@ let encode m =
     let local ((_, t), n) = len n; value_type t
 
     let code f =
-      let {locals; body; _} = f in
+      let {locals; body; no_of_args; _} = f in
       let g = gap32 () in
       let p = pos s in
-      vec local (compress locals);
+      let remove_first locals no_of_removals = 
+        let rec rem counter locals =
+          if counter < no_of_removals then
+            rem (counter + 1) (List.tl locals)
+          else 
+            locals
+        in 
+        rem 0 locals
+      in
+      vec local (compress (remove_first locals no_of_args));
       list instr body;
       end_ ();
       patch_gap32 g (pos s - p)
