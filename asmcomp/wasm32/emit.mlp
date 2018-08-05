@@ -368,9 +368,9 @@ let block_instruction name e =
   structured_instruction 
     name
     e
-    (fun i _t e ->
+    (fun _i _t e ->
       
-      [Block ((if List.length i > 0 then i else if Stack.length block_stack = 1 then !current_return_type else  []), e)]
+      [Block ((if Stack.length block_stack = 1 then !current_return_type else  []), e)]
     )
 
 let if_instruction name e =
@@ -378,7 +378,6 @@ let if_instruction name e =
     name
     e
     (fun _i t e -> 
-      (* let (_, t) = i in *)
       let (i, th, e) = e in
       i @ [If (t, th, e)]
     )
