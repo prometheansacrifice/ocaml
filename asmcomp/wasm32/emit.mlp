@@ -41,7 +41,21 @@ module VarMap = Map.Make(String)
 
 type local_space = {mutable l_map : (int32 * value_type list * string) VarMap.t; mutable l_count : int32}
 
-type block_stack = string Stack.t
+
+(* 
+  - should this have a type declaration? probably only if there is a sibling!
+ *)
+type block_stack_item =
+| BLoop
+| BIfthenelse
+| BCswitch_main
+| BCswitch_case
+| BWith of int 
+| BCcatch
+| BCheckbound1
+| BCheckbound2
+
+type block_stack = block_stack_item Stack.t
 (* type local_stack = value_type Stack.t *)
 
 (* the resulting wasm module *)
@@ -313,7 +327,7 @@ let is_target () =
   match f with 
   | Some (_, t) -> t
   | None -> []
-
+  
 let decrease_branch_calls () =
    branch_calls := List.fold_left (fun all (br, crt) -> 
     let new_br = Int32.sub br 1l in
@@ -333,16 +347,18 @@ let find_top_ccatch () = (
   let top_catch = ref None in
   let depth = ref 0 in
   Stack.iter (fun n -> 
-    if n = "ccatch" then (
-      top_catch := Some !depth
+    (match n with 
+    | BCcatch -> 
+      top_catch := Some !depth      
+    | _ -> ()
     );
-    depth := !depth + 1;
+    depth := !depth + 1
   ) block_stack;
   !top_catch;
 )
 
-let structured_instruction name e s =
-  Stack.push name block_stack;  
+let structured_instruction name e s =  
+  Stack.push name block_stack;    
   let expr = e () in
   let is_target = is_target () in
   let result = s is_target !current_return_type expr in
@@ -354,8 +370,9 @@ let is_in_ite () =
   let is_inside = ref false in
   let iter = ref 0 in
   Stack.iter (fun n -> 
-    (if !iter = 1 && n = "ifthenelse" then 
-      is_inside := true);
+    (match n with 
+    | BIfthenelse when !iter = 1 -> is_inside := true;
+    | _ -> ());
     iter := !iter + 1;
   ) block_stack;
   !is_inside
@@ -399,7 +416,7 @@ let if_instruction name e =
 
 let loop_instruction e = 
   structured_instruction
-    "loop"
+    BLoop
     e
     (fun _ _ e ->
       [Loop ([], e)]
@@ -750,7 +767,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     let snd = (emit_expr context snd) in    
     
     if_instruction 
-      "ccheckbound_1"
+      BCheckbound1
       (fun () ->         
         current_return_type := [];
         let i = fst @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
@@ -761,7 +778,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
         ] in
         current_return_type := [];
         let e = if_instruction
-          "ccheckbound_2"
+          BCheckbound2
           (fun () -> 
             (snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)], [
               DataSymbol "caml_exn_Invalid_argument";
@@ -945,7 +962,7 @@ and emit_expr (context:context) (expression:expression) =
     current_return_type := [];
     let i = emit_expr context if_2 in
     if_instruction 
-      "ifthenelse"
+      BIfthenelse
       (fun () ->         
         current_return_type := [];
         let t = emit_expr context then_ in
@@ -992,7 +1009,7 @@ and emit_expr (context:context) (expression:expression) =
       | _i :: re, expr :: rest -> (
         current_return_type := [];
         block_instruction 
-          "cswitch-case" 
+          BCswitch_case
           (fun () -> 
             let child_block = create_block re rest in        
             let e = child_block @ emit_expr context expr in
@@ -1004,7 +1021,7 @@ and emit_expr (context:context) (expression:expression) =
       | _, [] -> (
         current_return_type := [];
         block_instruction 
-          "cswitch-main" 
+          BCswitch_main 
           (fun () -> 
             let tb = BrTable (List.map (fun f -> Int32.of_int (1 + f)) ia, 0l) in
             let e = emit_expr context sw in
@@ -1030,7 +1047,7 @@ and emit_expr (context:context) (expression:expression) =
         )) il; 
         current_return_type := [];
         block_instruction
-          (string_of_int i)
+          (BWith i)
           (fun () ->
             let child_block = create_block rest in
             let e  = child_block @ emit_expr context expr in    
@@ -1039,14 +1056,15 @@ and emit_expr (context:context) (expression:expression) =
               match top_ccatch with 
               | Some s -> s
               | None -> 1
-            in
+            in            
             add_additional_br e length !current_return_type
+            
           )        
       )
       | [] ->
         (* current_return_type := []; *)
         block_instruction 
-          "ccatch"
+          BCcatch
           (fun () ->  
             emit_expr context body
           )
@@ -1061,10 +1079,10 @@ and emit_expr (context:context) (expression:expression) =
       let position = ref 0 in
       let result = ref [] in
       Stack.iter (fun str ->
-        if str = string_of_int i then ( 
-          print_endline ("CEXIT TO: " ^ str ^ "=> " ^ (string_of_int (!position - 1)));
+        (match str with 
+        | BWith w when w = i -> 
           result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]
-        );
+        | _ -> ());
         position := !position + 1
       ) block_stack;
       
