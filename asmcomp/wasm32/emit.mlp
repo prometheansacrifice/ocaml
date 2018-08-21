@@ -48,10 +48,11 @@ type local_space = {mutable l_map : (int32 * value_type list * string) VarMap.t;
 type block_stack_item =
 | BLoop
 | BIfthenelse
+| BCswitch_container
 | BCswitch_main
 | BCswitch_case
-| BWith of int 
-| BCcatch
+| BWith of (int * bool * value_type list) 
+| BCcatch 
 | BCheckbound1
 | BCheckbound2
 
@@ -320,6 +321,7 @@ let branch_calls: (int32 * value_type list) list ref = ref []
 
 let branch_call pos crt =
   branch_calls := !branch_calls @ [(pos, crt)];
+  current_return_type := [];
   Br pos
 
 let is_target () = 
@@ -343,18 +345,19 @@ let enter_func () = (
   {locals = empty_locals()}
 )
 
+
+let reset_top_ccatch = ref true
 let find_top_ccatch () = (
   let top_catch = ref None in
   let depth = ref 0 in
   Stack.iter (fun n -> 
     (match n with 
-    | BCcatch -> 
-      top_catch := Some !depth      
-    | _ -> ()
-    );
-    depth := !depth + 1
-  ) block_stack;
-  !top_catch;
+    | BWith (_, true, _) when !top_catch = None -> 
+      top_catch := Some (!depth + 1)
+    | _ -> depth := !depth + 1
+    );    
+  ) block_stack;  
+  !top_catch
 )
 
 let structured_instruction name e s =  
@@ -366,7 +369,7 @@ let structured_instruction name e s =
   ignore(Stack.pop block_stack);
   result
 
-let is_in_ite () = 
+(* let is_in_ite () = 
   let is_inside = ref false in
   let iter = ref 0 in
   Stack.iter (fun n -> 
@@ -375,7 +378,7 @@ let is_in_ite () =
     | _ -> ());
     iter := !iter + 1;
   ) block_stack;
-  !is_inside
+  !is_inside *)
 
 (*
   At several places OCaml has implicit branch calls that need to be made 
@@ -389,29 +392,26 @@ let add_additional_br e depth crt =
   | Loop _
   | BrTable _
   | Br _  -> []
-  | _ -> [branch_call (I32.of_int_s (depth - 1)) crt])
+  | _ -> 
+    [branch_call (I32.of_int_s (depth - 1)) crt]    
+  )
 
 let block_instruction name e = 
   structured_instruction 
     name
     e
-    (fun i t e ->
-      print_endline "needs a better check here...";
-      [Block ((   
-        if (List.length i > 0 && is_in_ite ()) then 
-          t   
-        else if Stack.length block_stack = 1 then 
-          !current_return_type 
-        else  []), e)]
+    (fun _i _t e ->
+      (* TODO..... *)
+      [Block (!current_return_type, e)]
     )
 
 let if_instruction name e =
   structured_instruction 
     name
     e
-    (fun _i t e -> 
+    (fun _i _t e -> 
       let (i, th, e) = e in
-      i @ [If (t, th, e)]
+      i @ [If (!current_return_type, th, e)]
     )
 
 let loop_instruction e = 
@@ -794,6 +794,10 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   current_return_type := convert_result (oper_result_type operation);    
   result
 and emit_expr (context:context) (expression:expression) =
+  (match expression with 
+  | Ccatch _ -> ();
+  | _ -> reset_top_ccatch := true);
+
   match expression with
   | Cconst_int i -> 
     (* Stack.push I32Type local_stack; *)
@@ -942,7 +946,14 @@ and emit_expr (context:context) (expression:expression) =
     print_local_stack "Cop (Capply _mt, (Cconst_symbol hd)::tl, _)"; *)
     let drop = (if Array.length mt = 0 then 
       (current_return_type := [];
-      [Drop]) else []) in    
+      [Drop]) else 
+      (        
+        current_return_type := (match mt with 
+        | [|Val|] | [|Int|] | [|Addr|] -> [I32Type]
+        | [|Float|] -> [F32Type]
+        | _ -> assert false
+      );
+      [])) in    
     (if not (func_symbol_exists hd) then (
       create_import_symbol hd args [I32Type])
     );
@@ -969,28 +980,43 @@ and emit_expr (context:context) (expression:expression) =
         let ty1 = !current_return_type in
         current_return_type := [];
         let e = emit_expr context else_ in
-        let ty2 = !current_return_type in
-        if (ty1 <> ty2) then (
-          current_return_type := [];
-        );       
+        let ty2 = !current_return_type in 
         let top_ccatch = find_top_ccatch () in
         let (t,e) = match top_ccatch with 
         | Some s -> 
           let t = 
-            if List.length t > 0 then
-              (current_return_type := [];
+            if List.length t > 0 then (
+              current_return_type := [];
               add_additional_br t s ty1)
             else
               t
           in              
           let e = 
-            if List.length e > 0 then
-              (current_return_type := [];
-              add_additional_br e s ty2)
+            if List.length e > 0 then (
+              current_return_type := [];
+              add_additional_br e s ty2
+            )
             else 
               e
-          in
-          (t, e)
+          in   
+          (if ty1 <> ty2 then 
+            (
+              let t = (match List.rev t with 
+              | Block ([I32Type], be) :: rest -> 
+                List.rev rest @ [Block ([], be)]
+              | _ -> t)
+              in
+              let e = (match List.rev e with 
+              | Block ([I32Type], be) :: rest -> 
+                List.rev rest @ [Block ([], be)]
+              | _ -> e)
+              in 
+              current_return_type := [];
+              (t, e)
+          )
+          else 
+            (t, e)
+          )
         | None -> (t, e)
         in
         (i, t, e)
@@ -998,6 +1024,7 @@ and emit_expr (context:context) (expression:expression) =
   | Cswitch  (sw, ia, ea, _) -> ( 
     let ea = Array.to_list ea in
     let ia = Array.to_list ia in
+    let depth = ref 0 in
     let rec create_block ints remaining =
       match ints, remaining with
       (* | _i :: re, expr :: rest when List.length remaining = List.length ea -> (
@@ -1013,8 +1040,8 @@ and emit_expr (context:context) (expression:expression) =
           (fun () -> 
             let child_block = create_block re rest in        
             let e = child_block @ emit_expr context expr in
-            let e = e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (I32.of_int_u (Stack.length block_stack)) !current_return_type]) in
-            e                        
+            depth := !depth + 1;
+            e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type])                                 
           )          
         @ (if (List.length ia = List.length remaining) then [Unreachable] else [])
       )
@@ -1026,11 +1053,19 @@ and emit_expr (context:context) (expression:expression) =
             let tb = BrTable (List.map (fun f -> Int32.of_int (1 + f)) ia, 0l) in
             let e = emit_expr context sw in
             current_return_type := [];
+            depth := !depth + 1;
             [Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb];            
           )
       )
       | _ -> failwith "Should not happen..."
-    in create_block ia ea
+    in 
+    block_instruction 
+      BCswitch_container
+      (fun () -> 
+        let result = create_block ia ea in
+        current_return_type := [I32Type];
+        result
+      )     
     )
   | Cloop e ->
     loop_instruction 
@@ -1038,7 +1073,7 @@ and emit_expr (context:context) (expression:expression) =
         (emit_expr context e)
         @ [branch_call 0l []]
       )    
-  | Ccatch  (_, with_, body) -> (  
+  | Ccatch  (_, with_, body) -> (          
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -1047,22 +1082,37 @@ and emit_expr (context:context) (expression:expression) =
         )) il; 
         current_return_type := [];
         block_instruction
-          (BWith i)
+          (BWith (i, (
+            if !reset_top_ccatch then 
+              (reset_top_ccatch := false;              
+              true)
+            else 
+              false
+          ), []))
           (fun () ->
             let child_block = create_block rest in
             let e  = child_block @ emit_expr context expr in    
+            let top_block = Stack.top block_stack in 
+            (match top_block with 
+            | BWith (i, true, []) -> 
+              (ignore(Stack.pop block_stack);
+               Stack.push (BWith (i, true, !current_return_type)) block_stack)
+            | _ -> ()
+            );
             let top_ccatch = find_top_ccatch () in
             let length =        
               match top_ccatch with 
               | Some s -> s
               | None -> 1
-            in            
-            add_additional_br e length !current_return_type
-            
-          )        
+            in     
+            let ct = !current_return_type in
+            let result = add_additional_br e length !current_return_type in            
+            (if length = 1 then               
+              current_return_type := ct);            
+            result
+          )
       )
       | [] ->
-        (* current_return_type := []; *)
         block_instruction 
           BCcatch
           (fun () ->  
@@ -1080,7 +1130,7 @@ and emit_expr (context:context) (expression:expression) =
       let result = ref [] in
       Stack.iter (fun str ->
         (match str with 
-        | BWith w when w = i -> 
+        | BWith (w, _, _) when w = i -> 
           result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]
         | _ -> ());
         position := !position + 1
