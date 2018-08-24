@@ -100,7 +100,6 @@ type instr =
   | Const of literal                  (* constant *)
   | DataSymbol of string
   | FuncSymbol of string
-  (* | DataSymbol2 of string *)
   | Test of testop                    (* numeric test *)
   | Compare of relop                  (* numeric comparison *)
   | Unary of unop                     (* unary numeric operator *)

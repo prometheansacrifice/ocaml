@@ -796,7 +796,8 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
 and emit_expr (context:context) (expression:expression) =
   (match expression with 
   | Ccatch _ -> ();
-  | _ -> reset_top_ccatch := true);
+  | _ -> 
+    reset_top_ccatch := true);
 
   match expression with
   | Cconst_int i -> 
@@ -1084,7 +1085,8 @@ and emit_expr (context:context) (expression:expression) =
         block_instruction
           (BWith (i, (
             if !reset_top_ccatch then 
-              (reset_top_ccatch := false;              
+              ( print_endline "truth!";
+                reset_top_ccatch := false;              
               true)
             else 
               false
@@ -1103,12 +1105,23 @@ and emit_expr (context:context) (expression:expression) =
             let length =        
               match top_ccatch with 
               | Some s -> s
-              | None -> 1
+              | None -> assert false
             in     
-            let ct = !current_return_type in
+            let ct = ref !current_return_type in
             let result = add_additional_br e length !current_return_type in            
-            (if length = 1 then               
-              current_return_type := ct);            
+            (if length = 1 then   
+              (
+                let iter = ref 0 in
+                Stack.iter (fun i -> 
+                  (match i with 
+                | BWith _ when !iter = 1 -> ct := []
+                | BCcatch when !iter = 1 -> ct := []
+                | _ -> ());
+                iter := !iter + 1
+                ) block_stack;
+
+
+              current_return_type := !ct));
             result
           )
       )
