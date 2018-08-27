@@ -1492,6 +1492,7 @@ wasm32:
 	make opt-core
 	make libasmrun-wasm
 	make wasm32-test
+	../wabt/bin/wasm2wat stdlib/stdlib__sort.o --inline-exports --inline-imports --no-check | pbcopy
 
 include .depend
 
