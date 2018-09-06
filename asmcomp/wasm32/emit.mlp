@@ -384,6 +384,8 @@ let structured_instruction name e s =
   At several places OCaml has implicit branch calls that need to be made 
   explicit for wasm.
 *)
+let closest_result_depth = ref 0l
+
 let add_additional_br e depth crt = 
   let last_item = List.hd (List.rev e) in
   e @ (match last_item with
@@ -393,6 +395,7 @@ let add_additional_br e depth crt =
   | BrTable _
   | Br _  -> []
   | _ -> 
+    print_endline ("add_additional_br check:" ^ string_of_int (depth - 1) ^ " vs " ^ Int32.to_string !closest_result_depth);
     [branch_call (I32.of_int_s (depth - 1)) crt]    
   )
 
@@ -410,8 +413,8 @@ let if_instruction name e =
     name
     e
     (fun _i _t e -> 
-      let (i, th, e) = e in
-      i @ [If (!current_return_type, th, e)]
+      let (i, th, e, dc) = e in
+      i @ [If (!current_return_type, th, e)] @ (if dc then [Br 0l] else [])
     )
 
 let loop_instruction e = 
@@ -431,7 +434,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) f -> 
         let (args, expression_list) = lst in
         let expr = emit_expr context f in
-        (* pop_local_stack 1; *)
         (args @ !current_return_type, expression_list @ expr)) ([], []) expression_list)
       in
       let drop = if Array.length mt = 0 then 
@@ -474,12 +476,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       | Double -> [Load {ty = F32Type; align; offset; sz = None}]
       | Double_u -> [Load {ty = F32Type; align; offset; sz = None}]))
       in
-      print_endline "load before";
       let expression_list = (emit_expr context el1) in
-      print_endline "load after";
-      (* print_endline "load2"; *)
-      (* ignore(Stack.push I32Type local_stack);   *)
-      (* print_local_stack "Cload"; *)
       expression_list @ instr
     )
   | Calloc, Cblockheader (header, _) :: _ -> (
@@ -489,7 +486,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) [I32Type] in
       let position = ref 0 in
       let calls = List.fold_left (fun calls f ->
-        print_endline "z1";
         let result = calls @
         ([GetLocal local_;
         Const (I32 (I32.of_int_s !position));
@@ -525,7 +521,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       @
       [GetLocal local_] (* return the value after the OCaml block header *)      
       in 
-      print_endline "z2";
       current_return_type := [I32Type]; 
       result
     )
@@ -552,49 +547,51 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     expression_list @ instr
   | Caddv, [fst; snd] (* pointer addition that produces a [Val] (well-formed Caml value) *)    
   | Caddi, [fst; snd]    
-  | Cadda, [fst; snd] -> (* derived heap pointer *)        
+  | Cadda, [fst; snd] -> (* derived heap pointer *)  
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;      
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Add)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
-    (* print_local_stack "Cadd*"; *)
+    has_sibling := previous_has_sibling;
     result        
   | Csubi, [fst; snd] ->
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Sub)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
-    (* print_local_stack "Csubi"; *)
+    has_sibling := previous_has_sibling;
     result        
   | Cmuli, [fst; snd]
   | Cmulhi, [fst; snd] ->
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Mul)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
-    (* print_local_stack "Cmul*"; *)
+    has_sibling := previous_has_sibling;
     result                
   | Cdivi, [fst; snd] ->
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.DivS)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
-    (* print_local_stack "Cdivi"; *)
+    has_sibling := previous_has_sibling;
     result                
   | Cmodi, [fst; snd] ->
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
     let cmod_local = bind_local context ("cmod_" ^ string_of_int counter) [I32Type] in
     let cmod_local2 = bind_local context ("cmod2_" ^ string_of_int counter) [I32Type] in
-    (emit_expr context fst) @
+    let result = (emit_expr context fst) @
      [SetLocal cmod_local;
       GetLocal cmod_local;
       GetLocal cmod_local] @
@@ -604,22 +601,26 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       GetLocal cmod_local2;
       Binary (I32 I32Op.Mul);
       Binary (I32 I32Op.Sub)]
+    in 
+    has_sibling := previous_has_sibling;
+    result
   | Cand, [fst; snd] ->    
-   let result = (emit_expr context fst) @
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
+    let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.And)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
-    (* print_local_stack "Cand"; *)
+    has_sibling := previous_has_sibling;
     result
   | Cor, [fst; snd] ->
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Or)]     
     in
-    (* pop_local_stack 2; *)
-    (* push_local_stack [I32Type]; *)
+    has_sibling := previous_has_sibling;
     result        
   | Cxor, [fst; snd] ->
     let result = (emit_expr context fst) @
@@ -785,17 +786,16 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
           Call "jsRaise_i32_unit"
         ] in
         current_return_type := [];
-        let e = if_instruction
+        let e = (if_instruction
           BCheckbound2
           (fun () -> 
             (snd @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)], [
               DataSymbol "caml_exn_Invalid_argument";
               Call "jsRaise_i32_unit"
-            ], [])
-          )
-          
+            ], [], false)
+          ))          
           in
-        (i, t, e)
+        (i, t, e, false)
       )            
   | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in  
@@ -808,19 +808,13 @@ and emit_expr (context:context) (expression:expression) =
     reset_top_ccatch := true);
 
   match expression with
-  | Cconst_int i -> 
-    (* Stack.push I32Type local_stack; *)
-    (* print_local_stack "Cconst_int"; *)
+  | Cconst_int i ->     
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s i))]
   | Cconst_natint i -> 
-    (* Stack.push I32Type local_stack; *)
-    (* print_local_stack "Cconst_natint"; *)
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cconst_float s ->
-    (* Stack.push F32Type local_stack; *)
-    (* print_local_stack "Cconst_float"; *)
     current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
@@ -828,27 +822,18 @@ and emit_expr (context:context) (expression:expression) =
     try
       let (_, t, _) = local context symbol in
       current_return_type := t;
-      (* Stack.push t local_stack; *)
-      (* print_local_stack "Cconst_symbol"; *)
       [Call symbol]
     with
     | _ -> 
       (current_return_type := [I32Type];      
-      (* Stack.push I32Type local_stack; *)
-      (* print_local_stack "Cconst_symbol"; *)
       [DataSymbol symbol]))
   | Cblockheader (i, _) ->
     current_return_type := [I32Type];
-    (* Stack.push I32Type local_stack; *)
-    (* print_local_stack "Cblockheader"; *)
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Cvar ident ->
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in      
       current_return_type := t;
-      (* Stack.push t local_stack; *)
-      (* print_local_stack "Cvar"; *)
-      print_endline "bum1";
       [GetLocal var]      
     )
     with
@@ -859,18 +844,12 @@ and emit_expr (context:context) (expression:expression) =
     
     let binding_name = ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp in    
      
-    print_endline "A1";
     let result = emit_expr context arg in    
-    print_endline "A2";
     if (!current_return_type <> []) then (
       let let_id = bind_local context binding_name !current_return_type in 
       (* let crt = !current_return_type in *)
       current_return_type := [];
-      (* has_sibling := true; *)
-      print_endline "BODY BEFORE";
       let body = emit_expr context fn_body in
-      (* has_sibling := false; *)
-      print_endline "BODY END";
       let result = if result = [] then (
         failwith "Clet - unexpected empty result";
       )
@@ -916,11 +895,11 @@ and emit_expr (context:context) (expression:expression) =
     result
     
   | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (    
-    print_endline "apply1";
     let fn_args = ref [] in
+    let previous_sibling = !has_sibling in
+    has_sibling := true;
     let expression_list = List.fold_left (fun lst f ->
       let result = emit_expr context f in
-      (* ignore(Stack.pop local_stack); *)
       fn_args := !fn_args @ !current_return_type;
       if List.length result > 0 then (
         lst @ result
@@ -929,7 +908,7 @@ and emit_expr (context:context) (expression:expression) =
         lst
     ) [] tl in
     let load_action = to_operations context el op in
-    
+    has_sibling := previous_sibling;
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
     let name_ = "wasm_unique_name_" ^ string_of_int counter in
@@ -939,13 +918,12 @@ and emit_expr (context:context) (expression:expression) =
       (current_return_type := [];
       [Drop]) else []) in    
     wasm_module := Ast.{w with types = w.types @ [type_]};
-    (* print_local_stack "Cop (Capply _, (Cop (Cload _ as op, el, _))::tl, _)"; *)
     expression_list @
     load_action @
     [CallIndirect name_] @ drop
     )
   | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (    
-    print_endline "Capply 2";
+    let previous_sibling = !has_sibling in
     has_sibling := true;
     let (args, expression_list) = List.fold_left (fun lst f -> 
       let (args, expression_list) = lst in      
@@ -975,21 +953,20 @@ and emit_expr (context:context) (expression:expression) =
     (if not (func_symbol_exists hd) then (
       create_import_symbol hd args [I32Type])
     );
-    print_endline "Dapply2 end";
-    has_sibling := false;
+    has_sibling := previous_sibling;
     expression_list @ [Call hd] @ drop
   )
   | Cop (operation, expression_list, _) ->  
     to_operations context expression_list operation
   | Csequence (Csequence(e1, Ctuple ([])), Cconst_int 1) -> (
-    print_endline "csequence D";
     let a = emit_expr context e1 in    
     a @ [Drop; Const (I32 1l)]
   )       
   | Csequence (e1, e2) ->
+    let previous_has_sibling = !has_sibling in
     has_sibling := true;    
     let a = emit_expr context e1 in
-    has_sibling := false;
+    has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
     a @ b
   | Cifthenelse (if_2, then_, else_) ->    
@@ -1006,7 +983,7 @@ and emit_expr (context:context) (expression:expression) =
         current_return_type := [];
         let e = emit_expr context else_ in
         let ty2 = !current_return_type in 
-        Stack.iter(fun f -> 
+        (* Stack.iter(fun f -> 
           print_endline (match f with 
           | BLoop -> "loop"
           | BIfthenelse true -> "ifthenelse true"
@@ -1019,7 +996,7 @@ and emit_expr (context:context) (expression:expression) =
           | BCheckbound1 -> "cb1"
           | BCheckbound2 -> "cb2")
         
-        ) block_stack;
+        ) block_stack; *)
         let top_ccatch = 
           (if (sibling) then 
             Some 2
@@ -1031,7 +1008,6 @@ and emit_expr (context:context) (expression:expression) =
           let t = 
             if List.length t > 0 then (
               current_return_type := [];
-              print_endline ("1. Add br to: " ^ string_of_int (s - 2) ^ ".");
               let result = add_additional_br t (s - 1) ty1 in
                (if sibling then 
                 current_return_type := ty1);
@@ -1042,7 +1018,6 @@ and emit_expr (context:context) (expression:expression) =
           let e = 
             if List.length e > 0 then (
               current_return_type := [];
-              print_endline ("2. Add br to: " ^ string_of_int (s - 2) ^ ".");
               let result = add_additional_br e (s - 1) ty2 in
               (if sibling then 
                 current_return_type := ty2);
@@ -1053,7 +1028,6 @@ and emit_expr (context:context) (expression:expression) =
           in   
           (if ty1 <> ty2 then 
             (
-              print_endline "humbug.";
               let t = (match List.rev t with 
               | Block ([I32Type], be) :: rest -> 
                 List.rev rest @ [Block ([], be)]
@@ -1070,10 +1044,10 @@ and emit_expr (context:context) (expression:expression) =
           else 
             (t, e)
           )
-        | None -> (t, e)
+        | None ->           
+          (t, e)
         in
-        print_endline "IF STATEMENT END";
-        (i, t, e)
+        (i, t, e, not sibling)
       )            
   | Cswitch  (sw, ia, ea, _) -> ( 
     let ea = Array.to_list ea in
@@ -1138,8 +1112,7 @@ and emit_expr (context:context) (expression:expression) =
         block_instruction
           (BWith (i, (
             if !reset_top_ccatch then 
-              ( print_endline "truth!";
-                reset_top_ccatch := false;              
+              ( reset_top_ccatch := false;              
               true)
             else 
               false
