@@ -343,6 +343,7 @@ let has_sibling = ref false
 
 let enter_func () = (
   has_sibling := false;
+  Stack.clear block_stack;
   current_return_type := [];
   branch_calls := [];
   {locals = empty_locals()}
@@ -387,7 +388,6 @@ let structured_instruction name e s =
   At several places OCaml has implicit branch calls that need to be made 
   explicit for wasm.
 *)
-let closest_result_depth = ref 0l
 
 let add_additional_br e depth crt = 
   let last_item = List.hd (List.rev e) in
@@ -398,7 +398,6 @@ let add_additional_br e depth crt =
   | BrTable _
   | Br _  -> []
   | _ -> 
-    print_endline ("add_additional_br check:" ^ string_of_int (depth - 1) ^ " vs " ^ Int32.to_string !closest_result_depth);
     [branch_call (I32.of_int_s (depth - 1)) crt]    
   )
 
