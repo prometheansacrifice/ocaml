@@ -339,7 +339,10 @@ let decrease_branch_calls () =
       all
   ) [] !branch_calls
 
+let has_sibling = ref false
+
 let enter_func () = (
+  has_sibling := false;
   current_return_type := [];
   branch_calls := [];
   {locals = empty_locals()}
@@ -425,7 +428,6 @@ let loop_instruction e =
       [Loop ([], e)]
     )
 
-let has_sibling = ref false
 
 let rec to_operations  (context) (expression_list:expression list) (operation:Cmm.operation) : Ast.instr list =     
   let result = (match operation, expression_list with
@@ -1047,6 +1049,7 @@ and emit_expr (context:context) (expression:expression) =
         | None ->           
           (t, e)
         in
+        has_sibling := sibling;
         (i, t, e, not sibling)
       )            
   | Cswitch  (sw, ia, ea, _) -> ( 
