@@ -379,11 +379,7 @@ let structured_instruction name e s =
 
 let add_additional_br e depth crt = 
   let last_item = List.hd (List.rev e) in
-  e @ (match last_item with
-  | Call "jsRaise_i32_i32" ->     
-    (let result = [branch_call (I32.of_int_s (Stack.length block_stack)) crt] in 
-    current_return_type := [];
-    result)
+  e @ (match last_item with  
   | Block _
   | If _ 
   | Loop _
@@ -392,7 +388,8 @@ let add_additional_br e depth crt =
     []
   | _ ->     
     (let result = [branch_call (I32.of_int_s (depth - 1)) crt] in
-    current_return_type := crt;
+    (* (if (depth - 1) = 0 then 
+      current_return_type := crt); *)
     result)
   )
 
@@ -768,10 +765,10 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
    
     let x = (emit_expr context arg) in
     print_endline "CRAISE YO END";
-    current_return_type := [I32Type];
+    current_return_type := [];
     has_sibling := previous_has_sibling; 
     x @
-    [Call "jsRaise_i32_i32"]
+    [Call "jsRaise_i32_i32"; Br (Int32.of_int (Stack.length block_stack))]
   | Ccheckbound, [fst; snd] -> 
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in    
@@ -1132,14 +1129,16 @@ and emit_expr (context:context) (expression:expression) =
                Stack.push (BWith (i, true, !current_return_type)) block_stack)
             | _ -> ()
             );
-            let top_ccatch = find_top_ccatch () in
+            (* let top_ccatch = find_top_ccatch () in
             let length =        
               match top_ccatch with 
               | Some s -> s
               | None -> assert false
-            in     
-            let result = add_additional_br e length !current_return_type in
-            (result, false)
+            in      *)
+            (* let ct = !current_return_type in *)
+            (* let result = add_additional_br e length !current_return_type in *)
+            (* current_return_type := ct; *)
+            (e, false)
           )
       )
       | [] ->
