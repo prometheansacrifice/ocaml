@@ -186,8 +186,6 @@ let bind_local (c : context) name value_types = bind_local c.locals name value_t
 
 let current_return_type = ref []
 
-
-
 let unique_name_counter = ref 0
 
 let name s =
@@ -329,15 +327,6 @@ let is_target () =
   match f with 
   | Some (_, t) -> t
   | None -> []
-  
-let decrease_branch_calls () =
-   branch_calls := List.fold_left (fun all (br, crt) -> 
-    let new_br = Int32.sub br 1l in
-    if new_br <> -1l then (
-      all @ [(new_br, crt)])
-    else 
-      all
-  ) [] !branch_calls
 
 let has_sibling = ref false
 
@@ -369,7 +358,6 @@ let structured_instruction name e s =
   let expr = e () in
   let is_target = is_target () in
   let result = s is_target !current_return_type expr in
-  decrease_branch_calls();
   ignore(Stack.pop block_stack);
   result
 
@@ -392,13 +380,20 @@ let structured_instruction name e s =
 let add_additional_br e depth crt = 
   let last_item = List.hd (List.rev e) in
   e @ (match last_item with
+  | Call "jsRaise_i32_i32" ->     
+    (let result = [branch_call (I32.of_int_s (Stack.length block_stack)) crt] in 
+    current_return_type := [];
+    result)
   | Block _
   | If _ 
   | Loop _
   | BrTable _
-  | Br _  -> []
-  | _ -> 
-    [branch_call (I32.of_int_s (depth - 1)) crt]    
+  | Br _  -> 
+    []
+  | _ ->     
+    (let result = [branch_call (I32.of_int_s (depth - 1)) crt] in
+    current_return_type := crt;
+    result)
   )
 
 let block_instruction name e = 
@@ -406,8 +401,9 @@ let block_instruction name e =
     name
     e
     (fun _i _t e ->
+      let (e, _dc) = e in
       (* TODO..... *)
-      [Block (!current_return_type, e)]
+      [Block (!current_return_type, e)] 
     )
 
 let if_instruction name e =
@@ -415,8 +411,8 @@ let if_instruction name e =
     name
     e
     (fun _i _t e -> 
-      let (i, th, e, dc) = e in
-      i @ [If (!current_return_type, th, e)] @ (if dc then [Br 0l] else [])
+      let (i, th, e, _dc) = e in
+      i @ [If (!current_return_type, th, e)]
     )
 
 let loop_instruction e = 
@@ -766,10 +762,14 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
   | Craise _, [arg] ->     
+    let previous_has_sibling = !has_sibling in
+    has_sibling := true;
+   
+   
     let x = (emit_expr context arg) in
-
+    print_endline "CRAISE YO END";
     current_return_type := [I32Type];
-    
+    has_sibling := previous_has_sibling; 
     x @
     [Call "jsRaise_i32_i32"]
   | Ccheckbound, [fst; snd] -> 
@@ -803,6 +803,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   current_return_type := convert_result (oper_result_type operation);    
   result
 and emit_expr (context:context) (expression:expression) =
+  print_endline "EMIT EXPRESSION";
   (match expression with 
   | Ccatch _ -> ();
   | _ -> 
@@ -834,6 +835,7 @@ and emit_expr (context:context) (expression:expression) =
   | Cvar ident ->
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in      
+      print_endline ("cvar:" ^ (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp));
       current_return_type := t;
       [GetLocal var]      
     )
@@ -960,24 +962,28 @@ and emit_expr (context:context) (expression:expression) =
   | Cop (operation, expression_list, _) ->  
     to_operations context expression_list operation
   | Csequence (Csequence(e1, Ctuple ([])), Cconst_int 1) -> (
+    print_endline "csequence1";
     let a = emit_expr context e1 in    
     a @ [Drop; Const (I32 1l)]
   )       
   | Csequence (e1, e2) ->
+    print_endline "csequence2";
     let previous_has_sibling = !has_sibling in
     has_sibling := true;    
     let a = emit_expr context e1 in
+    print_endline "cq2 more...";
     has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
     a @ b
   | Cifthenelse (if_2, then_, else_) ->    
+    print_endline "cifthenelse";
     let sibling = !has_sibling in
     has_sibling := false;
     current_return_type := [];
     let i = emit_expr context if_2 in
     if_instruction 
       (BIfthenelse sibling)
-      (fun () ->                 
+      (fun () ->                         
         current_return_type := [];
         let t = emit_expr context then_ in
         let ty1 = !current_return_type in
@@ -1045,10 +1051,11 @@ and emit_expr (context:context) (expression:expression) =
           else 
             (t, e)
           )
-        | None ->           
+        | None ->    
           (t, e)
         in
         has_sibling := sibling;
+        print_endline "cifthenelse end2";
         (i, t, e, not sibling)
       )            
   | Cswitch  (sw, ia, ea, _) -> ( 
@@ -1057,12 +1064,6 @@ and emit_expr (context:context) (expression:expression) =
     let depth = ref 0 in
     let rec create_block ints remaining =
       match ints, remaining with
-      (* | _i :: re, expr :: rest when List.length remaining = List.length ea -> (
-        let child_block = create_block re rest in        
-        let e = child_block @ emit_expr context expr in
-        let e = e @ (match expr with | Cexit _ -> [] | _ ->  [Br (I32.of_int_u (Stack.length block_stack - 1))]) in        
-        e
-        ); *)
       | _i :: re, expr :: rest -> (
         current_return_type := [];
         block_instruction 
@@ -1071,7 +1072,7 @@ and emit_expr (context:context) (expression:expression) =
             let child_block = create_block re rest in        
             let e = child_block @ emit_expr context expr in
             depth := !depth + 1;
-            e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type])                                 
+            (e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type]), false)
           )          
         @ (if (List.length ia = List.length remaining) then [Unreachable] else [])
       )
@@ -1084,7 +1085,7 @@ and emit_expr (context:context) (expression:expression) =
             let e = emit_expr context sw in
             current_return_type := [];
             depth := !depth + 1;
-            [Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb];            
+            ([Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb], false)
           )
       )
       | _ -> failwith "Should not happen..."
@@ -1094,7 +1095,7 @@ and emit_expr (context:context) (expression:expression) =
       (fun () -> 
         let result = create_block ia ea in
         current_return_type := [I32Type];
-        result
+        (result, false)
       )     
     )
   | Cloop e ->
@@ -1120,6 +1121,8 @@ and emit_expr (context:context) (expression:expression) =
               false
           ), []))
           (fun () ->
+            (* let sibling = !has_sibling in *)
+            print_endline "ccatch 1";
             let child_block = create_block rest in
             let e  = child_block @ emit_expr context expr in    
             let top_block = Stack.top block_stack in 
@@ -1135,29 +1138,18 @@ and emit_expr (context:context) (expression:expression) =
               | Some s -> s
               | None -> assert false
             in     
-            let ct = ref !current_return_type in
-            let result = add_additional_br e length !current_return_type in            
-            (if length = 1 then   
-              (
-                let iter = ref 0 in
-                Stack.iter (fun i -> 
-                  (match i with 
-                | BWith _ when !iter = 1 -> ct := []
-                | BCcatch when !iter = 1 -> ct := []
-                | _ -> ());
-                iter := !iter + 1
-                ) block_stack;
-
-
-              current_return_type := !ct));
-            result
+            let result = add_additional_br e length !current_return_type in
+            (result, false)
           )
       )
       | [] ->
         block_instruction 
           BCcatch
           (fun () ->  
-            emit_expr context body
+            print_endline "cc a";
+            let result = emit_expr context body in
+            print_endline "cc a";
+            (result, false)
           )
     in
     create_block with_)
