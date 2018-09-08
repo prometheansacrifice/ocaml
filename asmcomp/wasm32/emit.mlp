@@ -1104,6 +1104,7 @@ and emit_expr (context:context) (expression:expression) =
   | Ccatch  (_, with_, body) -> (          
     let rec create_block = function
       | (i, il, expr) :: rest -> (
+        (* print_endline ("XCheck:" ^ string_of_int (List.length rest)); *)
         List.iter (fun i -> (
           (* type is always i32type which is incorrect, but maybe not significant.. maybe... *)
           ignore(bind_local context (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) [I32Type])
@@ -1119,7 +1120,6 @@ and emit_expr (context:context) (expression:expression) =
           ), []))
           (fun () ->
             (* let sibling = !has_sibling in *)
-            print_endline "ccatch 1";
             let child_block = create_block rest in
             let e  = child_block @ emit_expr context expr in    
             let top_block = Stack.top block_stack in 
@@ -1129,25 +1129,24 @@ and emit_expr (context:context) (expression:expression) =
                Stack.push (BWith (i, true, !current_return_type)) block_stack)
             | _ -> ()
             );
-            (* let top_ccatch = find_top_ccatch () in
+            let top_ccatch = find_top_ccatch () in
             let length =        
               match top_ccatch with 
               | Some s -> s
               | None -> assert false
-            in      *)
-            (* let ct = !current_return_type in *)
-            (* let result = add_additional_br e length !current_return_type in *)
-            (* current_return_type := ct; *)
-            (e, false)
+            in     
+            (if length > 1 then
+              (e @ [branch_call (Int32.of_int length) !current_return_type], false)
+            else 
+              (e, false)
+            )
           )
       )
       | [] ->
         block_instruction 
           BCcatch
           (fun () ->  
-            print_endline "cc a";
             let result = emit_expr context body in
-            print_endline "cc a";
             (result, false)
           )
     in
