@@ -272,7 +272,7 @@ let enter_func () = (
 )
 
 
-let reset_top_ccatch = ref true
+(* let reset_top_ccatch = ref true
 let find_top_ccatch () = (
   let top_catch = ref None in
   let depth = ref 0 in
@@ -284,7 +284,7 @@ let find_top_ccatch () = (
     );    
   ) block_stack;  
   !top_catch
-)
+) *)
 
 let structured_instruction name e s =  
   Stack.push name block_stack;    
@@ -299,7 +299,7 @@ let structured_instruction name e s =
   explicit for wasm.
 *)
 
-let add_additional_br e depth crt = 
+(* let add_additional_br e depth crt = 
   let last_item = List.hd (List.rev e) in
   e @ (match last_item with  
   | Block _
@@ -310,7 +310,7 @@ let add_additional_br e depth crt =
     []
   | _ ->     
     [branch_call (I32.of_int_s (depth - 1)) crt]
-  )
+  ) *)
 
 let block_instruction name e = 
   structured_instruction 
@@ -706,11 +706,6 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   current_return_type := convert_result (oper_result_type operation);    
   result
 and emit_expr (context:context) (expression:expression) =
-  (match expression with 
-  | Ccatch _ -> ();
-  | _ -> 
-    reset_top_ccatch := true);
-
   match expression with
   | Cconst_int i ->     
     current_return_type := [I32Type];
@@ -873,73 +868,11 @@ and emit_expr (context:context) (expression:expression) =
         let ty1 = !current_return_type in
         current_return_type := [];
         let e = emit_expr context else_ in
-        let ty2 = !current_return_type in 
-        print_endline "Stack (top - bottom):";
-        Stack.iter(fun f -> 
-          print_endline (" - " ^ (match f with 
-          | BLoop -> "loop"
-          | BIfthenelse true -> "ifthenelse true"
-          | BIfthenelse false -> "ifthenelse false"
-          | BCswitch_container -> "switch container"
-          | BCswitch_main -> "switch main"
-          | BCswitch_case -> "switch case"
-          | BWith (_, true, _) -> "bwith true"
-          | BWith (_, false, _) -> "bwith false"
-          | BCcatch -> "ccatch"
-          | BCheckbound1 -> "cb1"
-          | BCheckbound2 -> "cb2"))        
-        ) block_stack;
-        let top_ccatch = 
-          (if (sibling) then 
-            Some 2
-          else   
-            find_top_ccatch ())
-        in
-        let (t,e) = match top_ccatch with 
-        | Some s -> 
-          let t = 
-            if List.length t > 0 then (
-              current_return_type := [];
-              let result = add_additional_br t (s - 1) ty1 in
-               (if sibling then 
-                current_return_type := ty1);
-              result)
-            else
-              t
-          in              
-          let e = 
-            if List.length e > 0 then (
-              current_return_type := [];
-              let result = add_additional_br e (s - 1) ty2 in
-              (if sibling then 
-                current_return_type := ty2);
-              result
-            )
-            else 
-              e
-          in   
-          (if ty1 <> ty2 then 
-            (
-              let t = (match List.rev t with 
-              | Block ([I32Type], be) :: rest -> 
-                List.rev rest @ [Block ([], be)]
-              | _ -> t)
-              in
-              let e = (match List.rev e with 
-              | Block ([I32Type], be) :: rest -> 
-                List.rev rest @ [Block ([], be)]
-              | _ -> e)
-              in 
-              current_return_type := [];
-              (t, e)
-          )
-          else 
-            (t, e)
-          )
-        | None ->    
-          (t, e)
-        in
+        let ty2 = !current_return_type in        
         has_sibling := sibling;
+        (if (ty1 <> ty2) && (List.length ty1 > 0) then
+            current_return_type := ty1
+        );        
         (i, t, e, not sibling)
       )            
   | Cswitch  (sw, ia, ea, _) -> ( 
@@ -988,7 +921,8 @@ and emit_expr (context:context) (expression:expression) =
         (emit_expr context e)
         @ [branch_call 0l []]
       )    
-  | Ccatch  (_, with_, body) -> (          
+  | Ccatch  (_, with_, body) -> ( 
+             
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -997,16 +931,13 @@ and emit_expr (context:context) (expression:expression) =
         )) il; 
         current_return_type := [];
         block_instruction
-          (BWith (i, (
-            if !reset_top_ccatch then 
-              ( reset_top_ccatch := false;              
-              true)
-            else 
-              false
-          ), []))
+          (BWith (i, false, []))
           (fun () ->
+            print_endline "ccatch: body";
             let child_block = create_block rest in
-            let e  = child_block @ emit_expr context expr in    
+            print_endline "ccatch: with body";
+            let e = child_block @ emit_expr context expr in    
+            print_endline "ccatch: add br if needed in with";
             let top_block = Stack.top block_stack in 
             (match top_block with 
             | BWith (i, true, []) -> 
@@ -1014,25 +945,19 @@ and emit_expr (context:context) (expression:expression) =
                Stack.push (BWith (i, true, !current_return_type)) block_stack)
             | _ -> ()
             );
-            let top_ccatch = find_top_ccatch () in
-            let length =        
-              match top_ccatch with 
-              | Some s -> s
-              | None -> assert false
-            in     
-            (if length > 1 then
-              (e @ [branch_call (Int32.of_int length) !current_return_type], false)
-            else 
-              (e, false)
-            )
+            let rt = !current_return_type in
+            let result = (e @ [branch_call 0l !current_return_type], false) in
+            current_return_type := rt;
+            result
           )
       )
       | [] ->
         block_instruction 
           BCcatch
-          (fun () ->  
-            let result = emit_expr context body in
-            (result, false)
+          (fun () ->     
+            (let a = ((emit_expr context body) @ [branch_call 1l !current_return_type], false) in
+            current_return_type := [];
+            a)
           )
     in
     create_block with_)
