@@ -748,7 +748,7 @@ and emit_expr (context:context) (expression:expression) =
     let binding_name = ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp in         
     let result = emit_expr context arg in    
     if (!current_return_type <> []) then (
-      (* let crt = !current_return_type in *)
+       let let_id = bind_local context binding_name !current_return_type in      
       current_return_type := [];
       let body = emit_expr context fn_body in
       let result = if result = [] then (
