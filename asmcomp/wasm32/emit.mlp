@@ -251,9 +251,30 @@ let blockheader_details header =
 let branch_calls: (int32 * value_type list) list ref = ref []
 
 let branch_call pos crt =
-  branch_calls := !branch_calls @ [(pos, crt)];
+  (branch_calls := !branch_calls @ [(pos, crt)];
+  let counter = ref 0 in
   current_return_type := [];
-  Br pos
+  Stack.iter (fun i ->
+    (if (!counter = Int32.to_int pos) then 
+      (match i with 
+      | BLoop -> ()
+      | BIfthenelse _ -> ()
+      | BCswitch_container -> ()
+      | BCswitch_main -> ()
+      | BCswitch_case -> ()
+      | BWith (_, _, [I32Type]) -> (
+        print_endline "boom";
+        current_return_type := [I32Type]
+        )
+      | BWith _ -> ()
+      | BCcatch -> ()
+      | BCheckbound1 -> ()
+      | BCheckbound2 -> ()
+      );
+      counter := !counter + 1)
+  ) block_stack;
+  
+  Br pos)
 
 let is_target () = 
   let f = List.find_opt (fun (f, _) -> f = 0l) !branch_calls in
@@ -930,25 +951,25 @@ and emit_expr (context:context) (expression:expression) =
           ignore(bind_local context (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) [I32Type])
         )) il; 
         current_return_type := [];
+        (* let with_ = emit_expr context expr in
+        let ct = !current_return_type in *)
         block_instruction
-          (BWith (i, false, []))
+          (BWith (i, true, []))
           (fun () ->
-            print_endline "ccatch: body";
-            let child_block = create_block rest in
-            print_endline "ccatch: with body";
-            let e = child_block @ emit_expr context expr in    
+            let with_ = emit_expr context expr in
+            let ct = !current_return_type in
             print_endline "ccatch: add br if needed in with";
             let top_block = Stack.top block_stack in 
             (match top_block with 
             | BWith (i, true, []) -> 
               (ignore(Stack.pop block_stack);
-               Stack.push (BWith (i, true, !current_return_type)) block_stack)
+                Stack.push (BWith (i, true, !current_return_type)) block_stack)
             | _ -> ()
             );
-            let rt = !current_return_type in
-            let result = (e @ [branch_call 0l !current_return_type], false) in
-            current_return_type := rt;
-            result
+            let child_block = create_block rest in            
+            let e = (child_block @ with_) in   
+            current_return_type := ct;          
+            (e, false)
           )
       )
       | [] ->
