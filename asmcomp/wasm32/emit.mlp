@@ -955,9 +955,14 @@ and emit_expr (context:context) (expression:expression) =
         block_instruction 
           BCcatch
           (fun () ->     
-            (let a = ((emit_expr context body) @ [branch_call 1l !current_return_type], false) in
-            current_return_type := [];
-            a)
+            (let a = (emit_expr context body) in 
+            if List.length !current_return_type > 0 then 
+              (let result = (a @ [branch_call 1l !current_return_type], false) in
+              current_return_type := [];
+              result)
+            else
+              (a, false)
+            )
           )
     in
     create_block with_)
