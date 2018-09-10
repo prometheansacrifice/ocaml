@@ -252,7 +252,8 @@ let branch_calls: (int32 * value_type list) list ref = ref []
 
 let branch_call pos crt =
   (branch_calls := !branch_calls @ [(pos, crt)];
-  let counter = ref 0 in
+  print_endline "branch_call";
+  let counter = ref 1 in
   current_return_type := [];
   Stack.iter (fun i ->
     (if (!counter = Int32.to_int pos) then 
@@ -910,6 +911,7 @@ and emit_expr (context:context) (expression:expression) =
             let child_block = create_block re rest in        
             let e = child_block @ emit_expr context expr in
             depth := !depth + 1;
+            print_endline "yolo2";
             (e @ (match expr with | Cexit _ -> [] | _ ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type]), false)
           )          
         @ (if (List.length ia = List.length remaining) then [Unreachable] else [])
@@ -939,8 +941,9 @@ and emit_expr (context:context) (expression:expression) =
   | Cloop e ->
     loop_instruction 
       (fun () -> 
+        (print_endline "yolo3";
         (emit_expr context e)
-        @ [branch_call 0l []]
+        @ [branch_call 0l []])
       )    
   | Ccatch  (_, with_, body) -> ( 
              
@@ -978,7 +981,9 @@ and emit_expr (context:context) (expression:expression) =
           (fun () ->     
             (let a = (emit_expr context body) in 
             if List.length !current_return_type > 0 then 
-              (let result = (a @ [branch_call 1l !current_return_type], false) in
+              (
+                print_endline "yolo4";
+                let result = (a @ [branch_call 1l !current_return_type], false) in
               current_return_type := [];
               result)
             else
@@ -998,7 +1003,8 @@ and emit_expr (context:context) (expression:expression) =
       Stack.iter (fun str ->
         (match str with 
         | BWith (w, _, _) when w = i -> 
-          result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]
+          ( print_endline "yolo";
+          result := [branch_call (Int32.of_int (!position - 1)) !current_return_type])
         | _ -> ());
         position := !position + 1
       ) block_stack;
