@@ -700,10 +700,10 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let x = (emit_expr context arg) in
-    current_return_type := [];
     has_sibling := previous_has_sibling; 
     let result = x @
     [Call "jsRaise_i32_i32"; Br (Int32.of_int (Stack.length block_stack))] in
+    current_return_type := [];
     result
 
   | Ccheckbound, [fst; snd] -> 
@@ -748,6 +748,7 @@ and emit_expr (context:context) (expression:expression) =
     current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]
   | Cconst_symbol symbol ->
+    print_endline ("SYMBOL:" ^ symbol);
     (      
     try
       let (_, t, _) = local context symbol in
@@ -799,6 +800,9 @@ and emit_expr (context:context) (expression:expression) =
       current_return_type := [];
       e @ [SetLocal l]
     )
+  | Ctuple [] ->
+    print_endline "Empty";
+    []
   | Ctuple ([Cop (Cload _, _, _) as _el; Cop (Cload _, _, _) as el2]) ->
     print_endline "For now we are always treating 64bit as 32bit - so ignoring the first 4 bytes";
     (* print_endline "ctuple"; *)
@@ -879,12 +883,17 @@ and emit_expr (context:context) (expression:expression) =
     let a = emit_expr context e1 in    
     a @ [Drop; Const (I32 1l)]
   )       
+  | Csequence (Cconst_symbol _, Ctuple []) -> []
   | Csequence (e1, e2) ->
+    print_endline "sequence 1";
     let previous_has_sibling = !has_sibling in
+    print_endline "sequence 2";
     has_sibling := true;    
     let a = emit_expr context e1 in
+    print_endline "sequence 3";
     has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
+    print_endline "sequence 4";
     a @ b
   | Cifthenelse (if_2, then_, else_) ->    
     let sibling = !has_sibling in
@@ -941,7 +950,6 @@ and emit_expr (context:context) (expression:expression) =
             (if List.length remaining <> List.length ea then         
               current_return_type := []
             else (                 
-              print_endline "yay12345";
               current_return_type := !rt
             ));
             result
@@ -994,7 +1002,6 @@ and emit_expr (context:context) (expression:expression) =
           (fun () ->
             let with_ = emit_expr context expr in
             let ct = !current_return_type in
-            print_endline "ccatch: add br if needed in with";
             let top_block = Stack.top block_stack in 
             (match top_block with 
             | BWith (i, true, []) -> 
@@ -1004,7 +1011,10 @@ and emit_expr (context:context) (expression:expression) =
             );
             let child_block = create_block rest in            
             let e = (child_block @ with_) in   
-            current_return_type := ct;          
+            (* (match List.rev with_ with 
+            | Br i :: Call "jsRaise_i32_i32" :: _ when (I32.gt_u i 1l) -> current_return_type := []
+            | _ ->  *)
+            current_return_type := ct;
             (e, false)
           )
       )
