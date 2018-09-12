@@ -801,8 +801,8 @@ and emit_expr (context:context) (expression:expression) =
       e @ [SetLocal l]
     )
   | Ctuple [] ->
-    print_endline "Empty";
-    []
+    (current_return_type := [];
+    [Nop])
   | Ctuple ([Cop (Cload _, _, _) as _el; Cop (Cload _, _, _) as el2]) ->
     print_endline "For now we are always treating 64bit as 32bit - so ignoring the first 4 bytes";
     (* print_endline "ctuple"; *)
@@ -895,7 +895,7 @@ and emit_expr (context:context) (expression:expression) =
     let b = emit_expr context e2 in
     print_endline "sequence 4";
     a @ b
-  | Cifthenelse (if_2, then_, else_) ->    
+  | Cifthenelse (if_2, then_, else_) ->        
     let sibling = !has_sibling in
     has_sibling := false;
     current_return_type := [];
@@ -987,7 +987,8 @@ and emit_expr (context:context) (expression:expression) =
         @ [branch_call 0l []])
       )    
   | Ccatch  (_, with_, body) -> ( 
-             
+    print_endline "ccatch";
+
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -1000,7 +1001,12 @@ and emit_expr (context:context) (expression:expression) =
         block_instruction
           (BWith (i, true, []))
           (fun () ->
-            let with_ = emit_expr context expr in
+            print_endline "before with...";
+            let with_ = emit_expr context expr in            
+            (if List.length with_ = 1 then 
+              print_endline "with returns 1"
+            else 
+              print_endline "with returns 0");
             let ct = !current_return_type in
             let top_block = Stack.top block_stack in 
             (match top_block with 
