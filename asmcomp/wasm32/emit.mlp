@@ -702,8 +702,10 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
     let x = (emit_expr context arg) in
     current_return_type := [];
     has_sibling := previous_has_sibling; 
-    x @
-    [Call "jsRaise_i32_i32"; Br (Int32.of_int (Stack.length block_stack))]
+    let result = x @
+    [Call "jsRaise_i32_i32"; Br (Int32.of_int (Stack.length block_stack))] in
+    result
+
   | Ccheckbound, [fst; snd] -> 
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in    
@@ -903,8 +905,8 @@ and emit_expr (context:context) (expression:expression) =
         let e = emit_expr context else_ in
         let ty2 = !current_return_type in        
         has_sibling := sibling;
-        (if (ty1 <> ty2) && (List.length ty1 > 0) then
-            current_return_type := ty1
+        (if (ty1 <> ty2) then
+            current_return_type := []
         );        
         (i, t, e, not sibling)
       )            
@@ -1013,7 +1015,6 @@ and emit_expr (context:context) (expression:expression) =
             (let a = (emit_expr context body) in 
             if List.length !current_return_type > 0 then 
               (
-                print_endline "yolo4";
                 let result = (a @ [branch_call 1l !current_return_type], false) in
               current_return_type := [];
               result)
