@@ -764,6 +764,11 @@ and emit_expr (context:context) (expression:expression) =
   | Cvar ident ->
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in      
+      print_endline ("getting : " ^ (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp));
+      (match t with 
+      | [I32Type] -> print_endline "i32"
+      | [F32Type] -> print_endline "f32"
+      | _ -> print_endline "other");
       current_return_type := t;
       [GetLocal var]      
     )
@@ -802,6 +807,7 @@ and emit_expr (context:context) (expression:expression) =
     )
   | Ctuple [] ->
     (current_return_type := [];
+    print_endline "NOPE";
     [Nop])
   | Ctuple ([Cop (Cload _, _, _) as _el; Cop (Cload _, _, _) as el2]) ->
     print_endline "For now we are always treating 64bit as 32bit - so ignoring the first 4 bytes";
@@ -853,6 +859,7 @@ and emit_expr (context:context) (expression:expression) =
     [CallIndirect name_] @ drop
     )
   | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (    
+    print_endline "yolo";
     let previous_sibling = !has_sibling in
     has_sibling := true;
     let (args, expression_list) = List.fold_left (fun lst f -> 
@@ -878,12 +885,13 @@ and emit_expr (context:context) (expression:expression) =
   )
   | Cop (operation, expression_list, _) ->  
     to_operations context expression_list operation
+  | Csequence (Cvar _, Ctuple [])
+  | Csequence (Cconst_symbol _, Ctuple []) -> []
   | Csequence (Csequence(e1, Ctuple ([])), Cconst_int 1) -> (
     print_endline "csequence1";
     let a = emit_expr context e1 in    
     a @ [Drop; Const (I32 1l)]
-  )       
-  | Csequence (Cconst_symbol _, Ctuple []) -> []
+  )         
   | Csequence (e1, e2) ->
     print_endline "sequence 1";
     let previous_has_sibling = !has_sibling in
