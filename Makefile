@@ -1483,7 +1483,8 @@ wasm32-all:
 	make wasm32
 
 wasm32-test:
-	boot/ocamlrun ./ocamlopt -o test test.ml -I stdlib -dstartup
+	boot/ocamlrun ./ocamlopt -o test -dcmm test.ml -I stdlib -dstartup
+	
 
 wasm32:
 	rm -f asmcomp/emit.cmo
@@ -1492,7 +1493,7 @@ wasm32:
 	make opt-core
 	make libasmrun-wasm
 	make wasm32-test
-	../wabt/bin/wasm2wat stdlib/camlinternalFormat.o --inline-exports --inline-imports --no-check | pbcopy
+	../wabt/bin/wasm2wat stdlib/camlinternalformat.o --inline-exports --inline-imports --no-check | pbcopy
 
 include .depend
 

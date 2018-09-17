@@ -3447,7 +3447,7 @@ let entry_point namelist =
                      Cconst_int 1], dbg)], dbg) in
   let result = 
     if Config.wasm32 then
-      (Ctuple [])
+      Cconst_symbol "dropme" (* sanderspies: ugly hack *)
     else 
       (Cconst_int 1)
   in
