@@ -15,6 +15,7 @@
 (* From C-- to WebAssembly object file AST *)
 
 open Cmm
+open Typed_cmm
 open Ast
 open Values
 open Wasm_types
@@ -276,7 +277,7 @@ let is_target () =
 let has_sibling = ref false
 
 let enter_func () = (
-  has_sibling := false;
+  has_sibling := true;
   Stack.clear block_stack;
   current_return_type := [];
   branch_calls := [];
@@ -351,7 +352,7 @@ let loop_instruction e =
     )
 
 
-let rec to_operations  (context) (expression_list:expression list) (operation:Cmm.operation) : Ast.instr list =     
+let rec to_operations  (context) (expression_list:typed_expression list) (operation:Cmm.operation) : Ast.instr list =     
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (symbol, mt, _, _), _ -> (            
@@ -403,7 +404,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       let expression_list = (emit_expr context el1) in
       expression_list @ instr
     )
-  | Calloc, Cblockheader (header, _) :: _ -> (
+  | Calloc, Tblockheader (header, _) :: _ -> (
       let (word_size, tag) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
@@ -416,7 +417,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
         Binary (I32 I32Op.Add)]
         @
         (match f with 
-        | Cconst_symbol symbol ->           
+        | Tconst_symbol symbol ->           
           let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
           (if is_closure then (current_return_type := [I32Type]; [FuncSymbol symbol]) else [DataSymbol symbol]);
           
@@ -442,7 +443,7 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
       @
       calls
       @    
-      (print_endline "yolooo"; [GetLocal local_])
+      [GetLocal local_]
       in 
       current_return_type := [I32Type];
       result
@@ -719,19 +720,19 @@ let rec to_operations  (context) (expression_list:expression list) (operation:Cm
   in  
   current_return_type := convert_result (oper_result_type operation);    
   result
-and emit_expr (context:context) (expression:expression) =
+and emit_expr (context:context) (expression:typed_expression) =
   match expression with
-  | Cconst_int i ->     
+  | Tconst_int i ->     
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s i))]
-  | Cconst_natint i -> 
+  | Tconst_natint i -> 
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cconst_float s ->    
+  | Tconst_float s ->    
     current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]
-  | Cconst_symbol "dropme" -> [] (* sanderspies: ugly hack *)
-  | Cconst_symbol symbol ->
+  | Tconst_symbol "dropme" -> [] (* sanderspies: ugly hack *)
+  | Tconst_symbol symbol ->
     (      
     try
       let (_, t, _) = local context symbol in
@@ -741,21 +742,20 @@ and emit_expr (context:context) (expression:expression) =
     | _ -> 
       (current_return_type := [I32Type];      
        [DataSymbol symbol]))
-  | Cblockheader (i, _) ->
+  | Tblockheader (i, _) ->
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Cvar ident ->
+  | Tvar ident ->
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in  
       current_return_type := t;    
-      print_endline ("wait what:" ^ (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp));
       [GetLocal var]      
     )
     with
     | _ ->
       failwith ("Cvar not found: " ^ ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp)
     )
-  | Clet (ident, arg, fn_body) -> (  
+  | Tlet (ident, arg, fn_body) -> (  
     let binding_name = ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp in         
     let result = emit_expr context arg in    
     if (!current_return_type <> []) then (
@@ -777,17 +777,17 @@ and emit_expr (context:context) (expression:expression) =
     )
     else 
       result)
-  | Cassign (i, e) -> (
+  | Tassign (i, e) -> (
       let name = (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) in
       let (l, _, _) = local context name in
       let e = emit_expr context e in
       current_return_type := [];
       e @ [SetLocal l]
     )
-  | Ctuple [] ->
+  | Ttuple [] ->
     (current_return_type := [];
     [Nop])
-  | Ctuple ([Cop (Cload _, _, _) as _el; Cop (Cload _, _, _) as el2]) ->
+  | Ttuple ([Top (Cload _, _, _, _) as _el; Top (Cload _, _, _, _) as el2]) ->
     print_endline "For now we are always treating 64bit as 32bit - so ignoring the first 4 bytes";
     (* print_endline "ctuple"; *)
     (* TODO ensure we are properly loading 64 bit here... *)
@@ -802,13 +802,13 @@ and emit_expr (context:context) (expression:expression) =
     (emit_expr context el2) @
     [
      Binary (I32 I32Op.Add)]     *)
-  | Ctuple el ->
+  | Ttuple el ->
     let result = List.fold_left (fun lst f -> 
       lst @ (emit_expr context f)) [] el in
     (* print_local_stack "Ctuple"; *)
     result
     
-  | Cop (Capply mt, (Cop (Cload _ as op, el, _))::tl, _) -> (    
+  | Top (Capply mt, (Top (Cload _ as op, el, _, _))::tl, _, _) -> (    
     let fn_args = ref [] in
     let previous_sibling = !has_sibling in
     has_sibling := true;
@@ -836,7 +836,7 @@ and emit_expr (context:context) (expression:expression) =
     load_action @
     [CallIndirect name_] @ drop
     )
-  | Cop (Capply mt, (Cconst_symbol hd)::tl, _) -> (    
+  | Top (Capply mt, (Tconst_symbol hd)::tl, _, _) -> (    
     let previous_sibling = !has_sibling in
     has_sibling := true;
     let (args, expression_list) = List.fold_left (fun lst f -> 
@@ -860,20 +860,20 @@ and emit_expr (context:context) (expression:expression) =
     has_sibling := previous_sibling;
     expression_list @ [Call hd] @ drop
   )
-  | Cop (operation, expression_list, _) ->  
+  | Top (operation, expression_list, _, _) ->  
     to_operations context expression_list operation
-  | Csequence (e, Ctuple []) -> (* ignore *)
+  | Tsequence (e, Ttuple []) -> (* ignore *)
     let a = emit_expr context e in 
     current_return_type := [];
     a @ [Drop]        
-  | Csequence (e1, e2) ->
+  | Tsequence (e1, e2) ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;    
     let a = emit_expr context e1 in
     has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
     a @ b
-  | Cifthenelse (if_2, then_, else_) ->        
+  | Tifthenelse (if_2, then_, else_, _) ->        
     let sibling = !has_sibling in
     has_sibling := false;
     current_return_type := [];
@@ -882,10 +882,6 @@ and emit_expr (context:context) (expression:expression) =
       (BIfthenelse sibling)
       (fun () ->                         
         current_return_type := [];
-        (* let then_ = match then_ with 
-        | Ctuple [] -> Cconst_int 1
-        | _ -> then_ 
-        in *)
         let t = emit_expr context then_ in        
         let ty1 = !current_return_type in
         current_return_type := [];
@@ -897,7 +893,7 @@ and emit_expr (context:context) (expression:expression) =
         );        
         (i, t, e, not sibling)
       )            
-  | Cswitch  (sw, ia, ea, _) -> (     
+  | Tswitch  (sw, ia, ea, _) -> (     
     let ea = Array.to_list ea in
     let ia = Array.to_list ia in
     let depth = ref 0 in
@@ -924,7 +920,7 @@ and emit_expr (context:context) (expression:expression) =
             let child_block = create_block re rest in            
             let e = (child_block @ body) in 
             
-            let result = (e @ (match expr with | Cexit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type] | _ -> [] ), false)  in
+            let result = (e @ (match expr with | Texit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [branch_call (Int32.of_int (List.length ea - !depth + 2)) !current_return_type] | _ -> [] ), false)  in
             (if List.length remaining <> List.length ea then         
               current_return_type := []
             else (                 
@@ -955,14 +951,14 @@ and emit_expr (context:context) (expression:expression) =
     in 
     create_block ia ea    
     );
-  | Cloop e ->
+  | Tloop e ->
     loop_instruction 
       (fun () -> 
         (
         (emit_expr context e)
         @ [branch_call 0l []])
       )    
-  | Ccatch  (_, with_, body) -> ( 
+  | Tcatch  (_, with_, body) -> ( 
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -976,12 +972,7 @@ and emit_expr (context:context) (expression:expression) =
           (BWith (i, true, []))
           (fun () ->
             let with_ = emit_expr context expr in            
-            let ct = !current_return_type in
-            (if List.length ct = 1 then 
-              print_endline ("before with: " ^ string_of_int i ^ " returns 1")            
-            else 
-              print_endline ("before with: " ^ string_of_int i ^ " returns 0")); 
-            
+            let ct = !current_return_type in            
             let top_block = Stack.top block_stack in 
             (match top_block with 
             | BWith (i, true, []) -> 
@@ -995,10 +986,6 @@ and emit_expr (context:context) (expression:expression) =
             | Br i :: Call "jsRaise_i32_i32" :: _ when (I32.gt_u i 1l) -> current_return_type := []
             | _ ->  *)
             current_return_type := ct;
-            (match ct with
-            | [I32Type] -> print_endline "x i32";
-            | [] -> print_endline "x none"
-            | _ -> print_endline "x other");
             (e, false)
           )
       )
@@ -1018,7 +1005,7 @@ and emit_expr (context:context) (expression:expression) =
           )
     in
     create_block with_)
-  | Cexit (i, el) ->
+  | Texit (i, el) ->
     (
       current_return_type := [];
       let el = List.fold_left (fun all e ->
@@ -1031,12 +1018,7 @@ and emit_expr (context:context) (expression:expression) =
         (match str with 
         | BWith (w, _, _) when w = i -> ( 
           found := true;
-          print_endline ("Cexit to " ^ string_of_int i ^ " -> " ^  string_of_int (!position - 1));          
-          result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]);
-          print_endline ("- returns: " ^ match !current_return_type with 
-          | [I32Type] -> "i32"
-          | [] -> "empty"
-          | _ -> "other");
+          result := [branch_call (Int32.of_int (!position - 1)) !current_return_type]);          
           current_return_type := find_block_type (Int32.of_int !position);
         | _ -> ());
         position := !position + 1
@@ -1044,7 +1026,7 @@ and emit_expr (context:context) (expression:expression) =
             
       el @ !result
     )
-  | Ctrywith  (body, _exn, _handler) ->
+  | Ttrywith  (body, _exn, _handler) ->
     (
       (* fix later *)
       print_endline "Wrongly doing Ctrywith: always picking the body for now";
@@ -1255,7 +1237,7 @@ let begin_assembly () = (
 )
 
 let fundecl ({fun_name; fun_args; fun_body; _}) = ( 
-    print_endline ("Function: " ^ fun_name);
+    (* print_endline ("Function: " ^ fun_name); *)
     let context = enter_func () in
     let args = ref [] in
     List.iter (fun (ident, mt) ->
@@ -1274,7 +1256,8 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     
     (* remove unit return value *)    
     current_return_type := [];
-    let fun_body = emit_expr context fun_body in     
+    let typed_cmm = Typed_cmm.add_types fun_name fun_body in
+    let fun_body = emit_expr context typed_cmm in         
     if (Stack.length block_stack <> 0) then (
       failwith "Stack length doesn't equal 0 for some reason..."
     );

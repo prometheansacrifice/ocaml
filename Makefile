@@ -175,7 +175,7 @@ WASMCOMP=\
   asmcomp/strmatch.cmo asmcomp/cmmgen.cmo \
   asmcomp/numeric_error.cmo asmcomp/int.cmo asmcomp/i32.cmo asmcomp/i64.cmo \
   asmcomp/lib.cmo asmcomp/wasm_types.cmo asmcomp/float.cmo asmcomp/f32.cmo asmcomp/f64.cmo \
-  asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo \
+  asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo asmcomp/typed_cmm.cmo \
   asmcomp/emitaux.cmo asmcomp/encode.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
@@ -1017,6 +1017,9 @@ asmcomp/utf8.ml: asmcomp/wasm32/utf8.ml
 asmcomp/encode.ml: asmcomp/wasm32/encode.ml
 	cd asmcomp; $(LN) wasm32/encode.ml .
 
+asmcomp/typed_cmm.ml: asmcomp/wasm32/typed_cmm.ml
+	cd asmcomp; $(LN) wasm32/typed_cmm.ml .
+
 # asmcomp/emit.ml: asmcomp/ast.ml
 
 
@@ -1032,6 +1035,7 @@ partialclean::
 	rm -f asmcomp/i32.ml
 	rm -f asmcomp/int.ml
 	rm -f asmcomp/numeric_error.ml
+	rm -f asmcomp/typed_cmm.ml
 	rm -f asmcomp/encode.ml
 
 else 
@@ -1493,7 +1497,7 @@ wasm32:
 	make opt-core
 	make libasmrun-wasm
 	make wasm32-test
-	../wabt/bin/wasm2wat stdlib/camlinternalformat.o --inline-exports --inline-imports --no-check | pbcopy
+	../wabt/bin/wasm2wat stdlib/stdlib__filename.o --inline-exports --inline-imports --no-check | pbcopy
 
 include .depend
 
