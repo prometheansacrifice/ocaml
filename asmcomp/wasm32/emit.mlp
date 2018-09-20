@@ -45,7 +45,7 @@ type local_space = {mutable l_map : (int32 * value_type list * string) VarMap.t;
 
 type block_stack_item =
 | BLoop
-| BIfthenelse of bool
+| BIfthenelse
 | BCswitch_main
 | BCswitch_case of value_type list
 | BWith of (int * bool * value_type list) 
@@ -414,37 +414,47 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
       let expression_list = (emit_expr context el1) in
       expression_list @ instr
     )
-  | Calloc, Tblockheader (header, _) :: _ -> (
+  | Calloc, Tblockheader (header, _) :: rest -> (
+      print_endline "block header allocation";
       let (word_size, tag) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) [I32Type] in
       let position = ref 0 in
+      let rt = ref typ_int in
+      let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
+      let is_floats = ((Nativeint.to_int tag) land 255) == 254 || ((Nativeint.to_int tag) land 255) == 253 in
+      print_endline ("tag: " ^ Nativeint.to_string tag);
       let calls = List.fold_left (fun calls f ->
-        let result = calls @
-        ([GetLocal local_;
+        let before =  calls @
+        [GetLocal local_;
         Const (I32 (I32.of_int_s !position));
         Binary (I32 I32Op.Add)]
-        @
+        in        
+        let (middle, tox) =
         (match f with 
-        | Tconst_symbol symbol ->           
-          let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
-          (if is_closure then (current_return_type := [I32Type]; [FuncSymbol symbol]) else [DataSymbol symbol]);
-          
-        | _ as e -> emit_expr context e))
-        in
-        let t = if !current_return_type = [] then 
-            I32Type
-          else 
-            List.hd !current_return_type
-        in
         
-        let result = result @ [Store {ty = t; align = 0; offset = 0l; sz = None}]     
+        | Tconst_symbol (symbol, kind, tx) ->     
+          rt := tx;      
+          
+          (if is_closure then (
+            current_return_type := [I32Type]; 
+            assert (kind = Sfunction);
+            ([FuncSymbol symbol], typ_int))
+          else (
+            assert (kind = Sdata);
+            ([DataSymbol symbol], typ_int)));         
+        | _ as e -> 
+          (if is_floats then               
+              rt := typ_float;            
+          (emit_expr context e, !rt)))
+        in
+        let result = before @ middle @ [Store {ty = List.hd(mach_to_wasm tox); align = 0; offset = 0l; sz = None}]     
         in
         current_return_type := [];
         position := !position + Nativeint.to_int word_size;
         result
-      ) [] expression_list
+      ) [] rest
       in           
       let result = [Const (I32 (Nativeint.to_int32 word_size));
        Call "caml_alloc";
@@ -741,7 +751,7 @@ and emit_expr (context:context) (expression:typed_expression) =
   | Tconst_float s ->    
     current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]  
-  | Tconst_symbol symbol ->
+  | Tconst_symbol (symbol, _kind, _t) ->
     (      
     try
       let (_, t, _) = local context symbol in
@@ -845,7 +855,7 @@ and emit_expr (context:context) (expression:typed_expression) =
     load_action @
     [CallIndirect name_] @ drop
     )
-  | Top (Capply mt, (Tconst_symbol hd)::tl, _, _) -> (    
+  | Top (Capply mt, (Tconst_symbol (hd, _, _))::tl, _, _) -> (    
     let previous_sibling = !has_sibling in
     has_sibling := true;
     let (args, expression_list) = List.fold_left (fun lst f -> 
@@ -882,27 +892,21 @@ and emit_expr (context:context) (expression:typed_expression) =
     has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
     a @ b
-  | Tifthenelse (if_2, then_, else_, _) ->        
-    let sibling = !has_sibling in
-    has_sibling := false;
-    current_return_type := [];
-    let i = emit_expr context if_2 in
-    if_instruction 
-      (BIfthenelse sibling)
-      (fun () ->                         
-        current_return_type := [];
-        let t = emit_expr context then_ in        
-        let ty1 = !current_return_type in
-        current_return_type := [];
-        let e = emit_expr context else_ in
-        let ty2 = !current_return_type in        
-        has_sibling := sibling;
-        (if (ty1 <> ty2) then
-            current_return_type := []
-        );        
-        (i, t, e, not sibling)
-      )            
-  | Tswitch  (sw, ia, ea, _) -> (     
+  | Tifthenelse (if_, then_, else_, rt) ->           
+    let i = emit_expr context if_ in
+    i
+    @
+    (
+      Stack.push BIfthenelse block_stack;
+      let t = emit_expr context then_ in        
+      let e = emit_expr context else_ in   
+      let result = [If (mach_to_wasm rt, t, e)] 
+      in
+      ignore(Stack.pop block_stack);
+      current_return_type := mach_to_wasm rt;
+      result
+    )
+  | Tswitch  (sw, ia, ea, _, t) -> (     
     let ea = Array.to_list ea in
     let ia = Array.to_list ia in
     let depth = ref 0 in
@@ -933,7 +937,7 @@ and emit_expr (context:context) (expression:typed_expression) =
             (if List.length remaining <> List.length ea then         
               current_return_type := []
             else (                 
-              current_return_type := !rt
+              current_return_type := mach_to_wasm t
             ));
             result
           )          
@@ -967,7 +971,7 @@ and emit_expr (context:context) (expression:typed_expression) =
         (emit_expr context e)
         @ [branch_call 0l []])
       )    
-  | Tcatch  (_, with_, body) -> ( 
+  | Tcatch  (_, with_, body, rt) -> ( 
     let rec create_block = function
       | (i, il, expr) :: rest -> (
         List.iter (fun i -> (
@@ -981,7 +985,7 @@ and emit_expr (context:context) (expression:typed_expression) =
           (BWith (i, true, []))
           (fun () ->
             let with_ = emit_expr context expr in            
-            let ct = !current_return_type in            
+            (* let ct = !current_return_type in             *)
             let top_block = Stack.top block_stack in 
             (match top_block with 
             | BWith (i, true, []) -> 
@@ -994,7 +998,7 @@ and emit_expr (context:context) (expression:typed_expression) =
             (* (match List.rev with_ with 
             | Br i :: Call "jsRaise_i32_i32" :: _ when (I32.gt_u i 1l) -> current_return_type := []
             | _ ->  *)
-            current_return_type := ct;
+            current_return_type := mach_to_wasm rt;
             (e, false)
           )
       )
