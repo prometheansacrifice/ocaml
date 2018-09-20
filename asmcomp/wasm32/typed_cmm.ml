@@ -6,7 +6,7 @@ type typed_expression =
   | Tconst_float of float
   | Tconst_symbol of string
   | Tblockheader of nativeint * Debuginfo.t
-  | Tvar of Ident.t
+  | Tvar of Ident.t * machtype
   | Tlet of Ident.t * typed_expression * typed_expression
   | Tassign of Ident.t * typed_expression
   | Ttuple of typed_expression list
@@ -54,7 +54,7 @@ type block =
 
 type block_stack = block Stack.t
 
-type local = string * machtype option
+type local = string * machtype
 
 let oper_result_type = function
   | Capply ty -> ty
@@ -82,13 +82,13 @@ type env = {
     stack: stack;
     block_stack: block_stack;
     needs_return: bool;
-    locals: local list;
+    locals: local list ref;
 }
 
 let initial_env () = 
   let stack : stack = Stack.create () in
   let block_stack : block_stack = Stack.create() in
-  let locals : local list = [] in
+  let locals : local list ref = ref [] in
   Stack.push Bfunction block_stack;
   { 
     stack; 
@@ -97,11 +97,18 @@ let initial_env () =
     locals 
   }
 
+let ident i = 
+  i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp
+
+let get_local locals name =
+  List.find_opt (fun (n, _) -> n = name) locals
+
 let rec process env e = 
   let stack = env.stack in
   let block_stack = env.block_stack in
   let needs_return = env.needs_return in
   let locals = env.locals in
+
   match e with 
     | Cconst_int i -> 
         Stack.push typ_int stack;
@@ -112,35 +119,53 @@ let rec process env e =
     | Cconst_float f ->
         Stack.push typ_float stack;
         Tconst_float f
+    | Cconst_symbol "dropme" ->
+        Stack.push typ_void stack;
+        Tconst_symbol "dropme"
     | Cconst_symbol s -> 
-        print_endline s;
-        Stack.push typ_int stack; (* potentially incorrect *)
+        let local = get_local !locals s in
+        (match local with 
+        | Some (_, t) -> Stack.push t stack
+        | None -> Stack.push typ_int stack);
         Tconst_symbol s
     | Cblockheader (n, d) -> 
         Stack.push typ_int stack;
         Tblockheader (n, d)
     | Cvar i -> (* potentially incorrect *)
-        print_endline (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp);
-        Stack.push typ_int stack;
-        Tvar i    
+        let local = get_local !locals (ident i) in
+        let t = (match local with 
+          | Some (_, t) -> t
+          | None -> typ_int
+        )
+        in
+        Stack.push t stack;
+        Tvar (i, t)
     | Clet (i, r, b) -> 
-        let r = process {env with needs_return = true} r in      
+        print_endline "clet 1";
+        let r = process {env with needs_return = true} r in              
+        print_endline "clet 1";
+        env.locals := !locals @ [(ident i, Stack.top stack)];
         ignore(Stack.pop stack);
-        Tlet (i, r, process env b)        
+        let result = Tlet (i, r, process env b) in        
+        result
     | Cassign (i, e) -> 
         let result = Tassign (i, process {env with needs_return = false} e) in
         ignore(Stack.pop stack);
         Stack.push typ_void stack;
+        env.locals := !locals @ [(ident i, Stack.top stack)];
         result
     | Ctuple [] -> 
         Stack.push typ_void stack;
         Ttuple []
-    | Ctuple el ->         
+    | Ctuple el ->      
+        print_endline "CTUPLE";
+        let stack_size_before = Stack.length stack in   
         let result = Ttuple (List.mapi (fun i e -> 
             (if i > 0 then 
                 ignore(Stack.pop stack);
             process env e)) el) in
-        result 
+        assert (stack_size_before + 1 = Stack.length stack);
+        result
     | Cop (o, el, d) ->
         let r = oper_result_type o in    
         let expected_length = Stack.length stack + List.length el in
@@ -149,13 +174,10 @@ let rec process env e =
         (if Stack.length stack <> expected_length then
             failwith ("Not correct:" ^ string_of_int (Stack.length stack) ^ " vs " ^ string_of_int expected_length)
         );
-        List.iter (fun _ -> ignore(Stack.pop stack)) el;
-        if needs_return then print_endline "needs a return..."
-        else print_endline "no return needed";
+        List.iter (fun _ -> ignore(Stack.pop stack)) el;                
         Stack.push r stack;
         result
     | Csequence (f, Cconst_int 1) -> 
-        print_endline "mkay!";
         let before = Stack.length stack in
         let processed_f = process {env with needs_return = false} f in
         ignore(Stack.pop stack);
@@ -177,6 +199,7 @@ let rec process env e =
         Tsequence (processed_f, process env s)
     | Csequence (Ctuple [], s) ->
         Tsequence (Ttuple [], process env s)        
+    
     | Csequence (f, s) -> 
         let before = Stack.length stack in
         let processed_f = process env f in        
@@ -195,7 +218,7 @@ let rec process env e =
           needs_return; 
           locals
         } in
-        let processed_t = process t_env t in
+        let processed_t = process t_env t in        
         let e_stack = Stack.copy stack in
         let e_env = {
           stack = e_stack; 
@@ -206,14 +229,25 @@ let rec process env e =
         let processed_e = process e_env e in        
         let then_type = Stack.top t_stack in
         let else_type = Stack.top e_stack in
-        if not (compare then_type else_type) then (
-            print_stack_type then_type;
-            print_stack_type else_type;
-            failwith "Then and else need to return the same type";
-        );
-        let rt = if Stack.length t_stack > Stack.length stack then Stack.top t_stack else Stack.top e_stack in
-        let result = Tifthenelse (processed_i, processed_t, processed_e, rt) in    
-            
+
+
+        let (processed_t, processed_e, rt) = 
+          (* sanderspies: hack hack hack :-/ *)
+          if not (compare then_type else_type) then (
+            if then_type = typ_void then                            
+              (processed_t, Tsequence(processed_e, Ttuple []), typ_void)
+            else if else_type = typ_void then
+              (Tsequence(processed_t, Ttuple []), processed_e, typ_void)
+            else 
+              failwith "Then and else need to return the same type"
+          ) else (
+            if Stack.length t_stack > Stack.length stack then 
+              (processed_t, processed_e, Stack.top t_stack)
+            else 
+              (processed_t, processed_e, Stack.top e_stack)
+        )
+        in
+        let result = Tifthenelse (processed_i, processed_t, processed_e, rt) in
         Stack.push rt stack;
         ignore(Stack.pop block_stack);
         assert (Stack.length stack = before_stack_length + 1);
@@ -242,6 +276,9 @@ let rec process env e =
         let ccatch_block_stack = Stack.copy block_stack in
         let ccatch_env = { stack = ccatch_stack; block_stack = ccatch_block_stack; needs_return; locals } in
         let with_exprs = List.map(fun (i, il, expr) -> (
+          List.iter (fun i -> (            
+            env.locals := !locals @ [(ident i, [|Int|])]
+          )) il; 
           let result = (i, il, process ccatch_env expr) in
           Stack.push (Bwith (i, Stack.top ccatch_stack)) ccatch_block_stack;
           result
@@ -257,7 +294,6 @@ let rec process env e =
             Stack.push (Stack.top ccatch_stack) stack;
         result
     | Cexit (i, el) -> 
-        print_endline ("-> exit " ^ string_of_int i);
         let found = ref false in
         Stack.iter (fun f -> 
             match f with 
@@ -267,7 +303,6 @@ let rec process env e =
             | _ -> ()
         ) block_stack;
         assert !found;
-        print_endline "cexit end";
         let result = Texit (i, List.map (process env) el) in
         List.iter (fun _ -> ignore(Stack.pop stack)) el;
         result
@@ -283,18 +318,22 @@ let rec process env e =
         assert (stack_size_before = Stack.length stack - 1);
         result
 
-let add_types func_name e =
-    print_endline ("Adding types to function:" ^ func_name);    
+let add_types _func_name fun_args e =
     let env = initial_env() in
     let stack = env.stack in
+
+    let locals = env.locals in
+    List.iter (fun (i, mt) ->
+      env.locals := !locals @ [(ident i, mt)]
+    ) fun_args;
+
     let block_stack = env.stack in
     let result = process env e in
-    print_endline "finished";
     (if (Stack.length stack <> 1) then (
         Stack.iter print_stack_type stack;
         failwith ("Stack was expected to have a length of 1, but got " ^ string_of_int (Stack.length stack)))
     );
     (if (Stack.length block_stack <> 1) then 
         failwith ("Block stack was expected to have a length of 1, but got " ^ string_of_int (Stack.length block_stack));
-    );
-    result
+    );    
+    (result, Stack.top stack)

@@ -40,6 +40,7 @@ open Wasm_types
 
 module VarMap = Map.Make(String)
 
+
 type local_space = {mutable l_map : (int32 * value_type list * string) VarMap.t; mutable l_count : int32}
 
 type block_stack_item =
@@ -74,7 +75,16 @@ let wasm_module = ref {
   symbols = [];
 }
 
-let empty_locals () = {l_map = VarMap.empty; l_count = 0l};
+let empty_locals () = {l_map = VarMap.empty; l_count = 0l}
+
+let mach_to_wasm = function 
+   | [||] -> []   
+   | [|Float|] -> [F32Type]   
+   | [|Val|]
+   | [|Addr|]
+   | [|Int|] -> 
+      [I32Type]
+   | _ -> assert false
 
 type context =
   { locals : local_space }
@@ -730,8 +740,7 @@ and emit_expr (context:context) (expression:typed_expression) =
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Tconst_float s ->    
     current_return_type := [F32Type];
-    [Const (F32 (F32.of_float s))]
-  | Tconst_symbol "dropme" -> [] (* sanderspies: ugly hack *)
+    [Const (F32 (F32.of_float s))]  
   | Tconst_symbol symbol ->
     (      
     try
@@ -745,7 +754,7 @@ and emit_expr (context:context) (expression:typed_expression) =
   | Tblockheader (i, _) ->
     current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Tvar ident ->
+  | Tvar (ident, _mt) ->
     (try (
       let (var, t, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in  
       current_return_type := t;    
@@ -1256,14 +1265,13 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     
     (* remove unit return value *)    
     current_return_type := [];
-    let typed_cmm = Typed_cmm.add_types fun_name fun_body in
+    let (typed_cmm, rt) = Typed_cmm.add_types fun_name fun_args fun_body in
     let fun_body = emit_expr context typed_cmm in         
     if (Stack.length block_stack <> 0) then (
       failwith "Stack length doesn't equal 0 for some reason..."
     );
-    let body = fun_body in
-
-    let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, !current_return_type)} in
+    let body = fun_body in    
+    let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, mach_to_wasm rt)} in
     let temp_locals = ref [] in
     VarMap.iter (fun _ (i, t, name) -> 
       temp_locals := !temp_locals @ [(i, name, t)]
