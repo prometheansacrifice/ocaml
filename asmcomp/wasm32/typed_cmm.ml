@@ -291,7 +291,7 @@ let rec process env e =
         let result = Tcatch (
           r, 
           with_exprs, 
-          (let result = process env body_ in             
+          (let result = process env body_ in            
            ignore(Stack.pop stack);
            result),
           (if needs_return then !rt else typ_void)
