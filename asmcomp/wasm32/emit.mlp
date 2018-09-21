@@ -276,14 +276,11 @@ let structured_instruction name e s =
   result
 
 let block_instruction name e = 
-  structured_instruction 
-    name
-    e
-    (fun e ->
-      let (e, _dc) = e in
-      [Block (!current_return_type, e)] 
-    )
-
+  Stack.push name block_stack;
+  let expr = e () in
+  ignore(Stack.pop block_stack);
+  [Block (!current_return_type, expr)] 
+  
 let if_instruction name e =
   structured_instruction 
     name
@@ -847,7 +844,7 @@ and emit_expr (context:context) (expression:typed_expression) =
             let child_block = create_block re rest in            
             let e = (child_block @ body) in 
             
-            let result = (e @ (match expr with | Texit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [Br (Int32.of_int (List.length ea - !depth + 2))] | _ -> [] ), false)  in
+            let result = (e @ (match expr with | Texit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [Br (Int32.of_int (List.length ea - !depth + 2))] | _ -> [] ))  in
             (if List.length remaining <> List.length ea then         
               current_return_type := []
             else (                 
@@ -869,9 +866,9 @@ and emit_expr (context:context) (expression:typed_expression) =
                 let e = emit_expr context sw in
                 current_return_type := [];
                 depth := !depth + 1;
-                ([Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb], false)
+                ([Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])
               )
-            ) @ [Unreachable], false)
+            ) @ [Unreachable])
           ))
       )
       | _ -> failwith "Should not happen..."
@@ -903,7 +900,7 @@ and emit_expr (context:context) (expression:typed_expression) =
             let child_block = create_block rest in            
             let e = (child_block @ with_) in   
             current_return_type := mach_to_wasm rt;
-            (e, false)
+            (e)
           )
       )
       | [] ->
@@ -919,11 +916,11 @@ and emit_expr (context:context) (expression:typed_expression) =
             );
             if List.length !current_return_type > 0 then 
               (
-                let result = (a @ [Br 1l], false) in
+                let result = (a @ [Br 1l]) in
               current_return_type := [];
               result)
             else
-              (a, false)
+              a
             )
           )
     in
