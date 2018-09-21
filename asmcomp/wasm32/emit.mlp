@@ -835,42 +835,34 @@ and emit_expr (context:context) (expression:typed_expression) =
     let rec create_block ints remaining =
       match ints, remaining with
       | _i :: re, expr :: rest -> (
-        current_return_type := [];
-        block_instruction 
-          BCswitch_case
-          (fun () -> 
-            let body = emit_expr context expr in            
-            depth := !depth + 1;            
-            let child_block = create_block re rest in            
-            let e = (child_block @ body) in 
-            
-            let result = (e @ (match expr with | Texit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [Br (Int32.of_int (List.length ea - !depth + 2))] | _ -> [] ))  in
-            (if List.length remaining <> List.length ea then         
-              current_return_type := []
-            else (                 
-              current_return_type := mach_to_wasm t
-            ));
-            result
-          )          
-        (* @ (if (List.length ia = List.length remaining) then (print_endline "AAAA1"; [Unreachable]) else []) *)
+        Stack.push BCswitch_case block_stack;
+        let body = emit_expr context expr in            
+        depth := !depth + 1;            
+        let child_block = create_block re rest in            
+        let e = (child_block @ body) in 
+        
+        let expr = (e @ (match expr with | Texit _ -> [] | _ when (!depth - 1) <> List.length remaining ->  [Br (Int32.of_int (List.length ea - !depth + 2))] | _ -> [] ))  in
+        let block_type = (if List.length remaining <> List.length ea then         
+          []
+        else (                 
+          mach_to_wasm t
+        ))
+        in
+        ignore(Stack.pop block_stack);        
+        [Block (block_type, expr)] 
       )
       | _, [] -> (
-        current_return_type := [];
-        block_instruction 
-          BCswitch_main 
-          (fun () -> (
-            ((block_instruction 
-              BCswitch_main 
-              (fun () -> 
-                let tb = BrTable (List.map (fun f -> Int32.of_int (List.length ea - f)) ia, 0l) in
-                let e = emit_expr context sw in
-                current_return_type := [];
-                depth := !depth + 1;
-                ([Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb])
-              )
-            ) @ [Unreachable])
-          ))
-      )
+        Stack.push BCswitch_main block_stack;
+        Stack.push BCswitch_main block_stack;
+        let tb = BrTable (List.map (fun f -> Int32.of_int (List.length ea - f)) ia, 0l) in
+        let e = emit_expr context sw in
+        depth := !depth + 1;
+        let expr = ([Const (I32 1l)] @ e @ [Binary (I32 I32Op.Sub)] @ [tb]) in
+        let table_body = [Block ([], expr)] in
+        ignore(Stack.pop block_stack);
+        ignore(Stack.pop block_stack);
+        let content = table_body @ [Unreachable] in
+        [Block ([], content)])
       | _ -> failwith "Should not happen..."
     in 
     create_block ia ea    
