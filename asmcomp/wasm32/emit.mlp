@@ -275,12 +275,6 @@ let structured_instruction name e s =
   ignore(Stack.pop block_stack);
   result
 
-let block_instruction name e = 
-  Stack.push name block_stack;
-  let expr = e () in
-  ignore(Stack.pop block_stack);
-  [Block (!current_return_type, expr)] 
-  
 let if_instruction name e =
   structured_instruction 
     name
@@ -874,49 +868,41 @@ and emit_expr (context:context) (expression:typed_expression) =
         (emit_expr context e)
         @ [Br 0l])
       )    
-  | Tcatch  (_, with_, body, rt) -> ( 
-    print_endline "CCATCH START";
-
-    let rec create_block = function
-      | (i, il, expr) :: rest -> (
-        print_endline "A";
+  | Tcatch  (_, (i, il, expr) :: [], body, rt) -> ( 
+   
         List.iter (fun i -> (
           (* type is always i32type which is incorrect, but maybe not significant.. maybe... *)
           ignore(bind_local context (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) [I32Type])
         )) il; 
-        block_instruction
-          (BWith i)
-          (fun () ->
-            print_endline "C";
-            let with_ = emit_expr context expr in            
-            let child_block = create_block rest in            
-            let e = (child_block @ with_) in   
-            current_return_type := mach_to_wasm rt;
-            (e)
-          )
-      )
-      | [] ->
-        print_endline "B";
-        block_instruction 
-          BCcatch
-          (fun () ->     
+        Stack.push (BWith i) block_stack;
+        let with_ = emit_expr context expr in            
+        let child_block = (
+          Stack.push BCcatch block_stack;
+          let a = (emit_expr context body) in 
+          (if (List.length !current_return_type <> Array.length rt) then              
+            print_endline ("CCatch mismatch :( :" ^ string_of_int (List.length !current_return_type) ^ " - " ^ string_of_int (Array.length rt));
+          );
+          let expr = if List.length !current_return_type > 0 then 
             (
-            print_endline "D";  
-            let a = (emit_expr context body) in 
-            (if (List.length !current_return_type <> Array.length rt) then              
-              print_endline ("CCatch mismatch :( :" ^ string_of_int (List.length !current_return_type) ^ " - " ^ string_of_int (Array.length rt));
-            );
-            if List.length !current_return_type > 0 then 
-              (
-                let result = (a @ [Br 1l]) in
-              current_return_type := [];
-              result)
-            else
-              a
-            )
+              let result = (a @ [Br 1l]) in
+            current_return_type := [];
+            result)
+          else (
+            a
           )
-    in
-    create_block with_)
+          in
+          ignore(Stack.pop block_stack);
+          [Block (!current_return_type, expr)] 
+        )
+        in          
+        let e = (child_block @ with_) in   
+        current_return_type := mach_to_wasm rt;
+        let expr = e in
+        ignore(Stack.pop block_stack);
+
+        [Block (!current_return_type, expr)]         
+      )
+  | Tcatch _ -> assert false
   | Texit (i, el) ->
     (
       let el = List.fold_left (fun all e ->
