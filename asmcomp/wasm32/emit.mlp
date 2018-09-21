@@ -275,24 +275,6 @@ let structured_instruction name e s =
   ignore(Stack.pop block_stack);
   result
 
-(*
-  At several places OCaml has implicit branch calls that need to be made 
-  explicit for wasm.
-*)
-
-(* let add_additional_br e depth crt = 
-  let last_item = List.hd (List.rev e) in
-  e @ (match last_item with  
-  | Block _
-  | If _ 
-  | Loop _
-  | BrTable _
-  | Br _  -> 
-    []
-  | _ ->     
-    [branch_call (I32.of_int_s (depth - 1)) crt]
-  ) *)
-
 let block_instruction name e = 
   structured_instruction 
     name
@@ -710,7 +692,6 @@ and emit_expr (context:context) (expression:typed_expression) =
       | Sdata -> [DataSymbol symbol]
     )    
   | Tblockheader (i, _) ->
-    current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Tvar (ident, mt) ->
     (try (
@@ -722,12 +703,11 @@ and emit_expr (context:context) (expression:typed_expression) =
     | _ ->
       failwith ("Cvar not found: " ^ ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp)
     )
-  | Tlet (ident, arg, fn_body) -> (  
+  | Tlet (ident, arg, arg_rt, fn_body) -> (  
     let binding_name = ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp in         
     let result = emit_expr context arg in    
-    if (!current_return_type <> []) then (
-       let let_id = bind_local context binding_name !current_return_type in      
-      current_return_type := [];
+    if (arg_rt <> [||]) then (
+       let let_id = bind_local context binding_name (mach_to_wasm arg_rt) in      
       let body = emit_expr context fn_body in
       let result = if result = [] then (
         failwith "Clet - unexpected empty result";
@@ -748,12 +728,9 @@ and emit_expr (context:context) (expression:typed_expression) =
       let name = (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) in
       let (l, _, _) = local context name in
       let e = emit_expr context e in
-      current_return_type := [];
       e @ [SetLocal l]
     )
-  | Ttuple [] ->
-    (current_return_type := [];
-    [Nop])
+  | Ttuple [] ->  [Nop]
   | Ttuple ([Top (Cload _, _, _, _) as _el; Top (Cload _, _, _, _) as el2]) ->
     print_endline "For now we are always treating 64bit as 32bit - so ignoring the first 4 bytes";
     (* print_endline "ctuple"; *)

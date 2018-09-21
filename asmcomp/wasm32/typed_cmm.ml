@@ -11,7 +11,7 @@ type typed_expression =
   | Tconst_symbol of string * symbol_kind * machtype
   | Tblockheader of nativeint * Debuginfo.t
   | Tvar of Ident.t * machtype
-  | Tlet of Ident.t * typed_expression * typed_expression
+  | Tlet of Ident.t * typed_expression * machtype * typed_expression
   | Tassign of Ident.t * typed_expression
   | Ttuple of typed_expression list
   | Top of operation * typed_expression list * Debuginfo.t * machtype
@@ -166,8 +166,9 @@ let rec process env e =
     | Clet (i, r, b) -> 
         let r = process {env with needs_return = true} r in
         env.locals := !locals @ [(ident i, Stack.top stack)];
+        let rt = Stack.top stack in
         ignore(Stack.pop stack);
-        let result = Tlet (i, r, process env b) in
+        let result = Tlet (i, r, rt, process env b) in
         result
     | Cassign (i, e) -> 
         let result = Tassign (i, process {env with needs_return = false} e) in
