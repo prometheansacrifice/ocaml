@@ -868,40 +868,20 @@ and emit_expr (context:context) (expression:typed_expression) =
         (emit_expr context e)
         @ [Br 0l])
       )    
-  | Tcatch  (_, (i, il, expr) :: [], body, rt) -> ( 
-   
-        List.iter (fun i -> (
-          (* type is always i32type which is incorrect, but maybe not significant.. maybe... *)
-          ignore(bind_local context (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) [I32Type])
-        )) il; 
-        Stack.push (BWith i) block_stack;
-        let with_ = emit_expr context expr in            
-        let child_block = (
-          Stack.push BCcatch block_stack;
-          let a = (emit_expr context body) in 
-          (if (List.length !current_return_type <> Array.length rt) then              
-            print_endline ("CCatch mismatch :( :" ^ string_of_int (List.length !current_return_type) ^ " - " ^ string_of_int (Array.length rt));
-          );
-          let expr = if List.length !current_return_type > 0 then 
-            (
-              let result = (a @ [Br 1l]) in
-            current_return_type := [];
-            result)
-          else (
-            a
-          )
-          in
-          ignore(Stack.pop block_stack);
-          [Block (!current_return_type, expr)] 
-        )
-        in          
-        let e = (child_block @ with_) in   
-        current_return_type := mach_to_wasm rt;
-        let expr = e in
-        ignore(Stack.pop block_stack);
-
-        [Block (!current_return_type, expr)]         
-      )
+  | Tcatch  (_, (i, il, expr) :: [], body, rt) -> (    
+    List.iter (fun i -> (
+      (* type is always i32type which is incorrect, but maybe not significant.. maybe... *)
+      ignore(bind_local context (i.Ident.name ^ "/" ^ string_of_int i.Ident.stamp) [I32Type])
+    )) il; 
+    Stack.push (BWith i) block_stack;
+    let with_ = emit_expr context expr in            
+    Stack.push BCcatch block_stack;
+    let child_block = [Block ([], (emit_expr context body) @ [Br 1l])] in
+    ignore(Stack.pop block_stack);
+    let expr = (child_block @ with_) in       
+    ignore(Stack.pop block_stack);
+    [Block (mach_to_wasm rt, expr)]         
+  )
   | Tcatch _ -> assert false
   | Texit (i, el) ->
     (
