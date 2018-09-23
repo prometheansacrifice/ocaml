@@ -293,11 +293,11 @@ let loop_instruction e =
     )
 
 
-let rec to_operations  (context) (expression_list:typed_expression list) (operation:Cmm.operation) : Ast.instr list =     
+let rec to_operations  (context) (expression_list:(typed_expression * machtype) list) (operation:Cmm.operation) : Ast.instr list =     
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (symbol, mt, _, _), _ -> (            
-      let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) f -> 
+      let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) (f, _ft) ->       
         let (args, expression_list) = lst in
         let expr = emit_expr context f in
         (args @ !current_return_type, expression_list @ expr)) ([], []) expression_list)
@@ -321,7 +321,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
         [Call symbol] @ drop)
       )      
       )
-  | Cload (memory_chunk, _), [el1] -> (
+  | Cload (memory_chunk, _), [(el1, _rt)] -> (
       let align = 0 in
       let offset = 0l in
       (* ignore(Stack.pop local_stack); *)
@@ -345,7 +345,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
       let expression_list = (emit_expr context el1) in
       expression_list @ instr
     )
-  | Calloc, Tblockheader (header, _) :: rest -> (
+  | Calloc, (Tblockheader (header, _), _) :: rest -> (
       let (word_size, tag) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
@@ -354,7 +354,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
       let rt = ref typ_int in
       let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
       let is_floats = ((Nativeint.to_int tag) land 255) == 254 || ((Nativeint.to_int tag) land 255) == 253 in
-      let calls = List.fold_left (fun calls f ->
+      let calls = List.fold_left (fun calls (f, _rt) ->
         let before =  calls @
         [GetLocal local_;
         Const (I32 (I32.of_int_s !position));
@@ -363,14 +363,18 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
         let (middle, tox) =
         (match f with 
         
-        | Tconst_symbol (symbol, kind, tx) ->     
-          rt := tx;      
+        | Tconst_symbol (symbol, kind) ->     
+          (match kind with 
+          | Sfunction (_args, tx) -> 
+            (assert is_closure;
+            rt := tx)
+          | Sdata tx -> 
+            (assert (is_closure = false);
+            rt := tx));
           
           (if is_closure then (
-            assert (kind = Sfunction);
             ([FuncSymbol symbol], typ_int))
           else (
-            assert (kind = Sdata);
             ([DataSymbol symbol], typ_int)));         
         | _ as e -> 
           (if is_floats then               
@@ -394,7 +398,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
       in 
       result
     )
-  | Cstore (memory_chunk, _), [el1; el2] ->
+  | Cstore (memory_chunk, _), [(el1, _); (el2, _)] ->
     
     let align = 0 in
     let offset = 0l in
@@ -413,9 +417,9 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     | Double_u -> [Store {ty = F32Type; align; offset; sz = None}])
     in
     expression_list @ instr
-  | Caddv, [fst; snd] (* pointer addition that produces a [Val] (well-formed Caml value) *)    
-  | Caddi, [fst; snd]    
-  | Cadda, [fst; snd] -> (* derived heap pointer *)  
+  | Caddv, [(fst, _); (snd, _)] (* pointer addition that produces a [Val] (well-formed Caml value) *)    
+  | Caddi, [(fst, _); (snd, _)]    
+  | Cadda, [(fst, _); (snd, _)] -> (* derived heap pointer *)  
     let previous_has_sibling = !has_sibling in
     has_sibling := true;      
     let result = (emit_expr context fst) @
@@ -424,7 +428,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result        
-  | Csubi, [fst; snd] ->
+  | Csubi, [(fst, _); (snd, _)] ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let result = (emit_expr context fst) @
@@ -433,8 +437,8 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result        
-  | Cmuli, [fst; snd]
-  | Cmulhi, [fst; snd] ->
+  | Cmuli, [(fst, _); (snd, _)]
+  | Cmulhi, [(fst, _); (snd, _)] ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let result = (emit_expr context fst) @
@@ -443,7 +447,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result                
-  | Cdivi, [fst; snd] ->
+  | Cdivi, [(fst, _); (snd, _)] ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let result = (emit_expr context fst) @
@@ -452,7 +456,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result                
-  | Cmodi, [fst; snd] ->
+  | Cmodi, [(fst, _); (snd, _)] ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let counter = !unique_name_counter in
@@ -472,7 +476,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in 
     has_sibling := previous_has_sibling;
     result
-  | Cand, [fst; snd] ->    
+  | Cand, [(fst, _); (snd, _)] ->    
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let result = (emit_expr context fst) @
@@ -481,7 +485,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result
-  | Cor, [fst; snd] ->
+  | Cor, [(fst, _); (snd, _)] ->
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let result = (emit_expr context fst) @
@@ -490,117 +494,117 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     in
     has_sibling := previous_has_sibling;
     result        
-  | Cxor, [fst; snd] ->
+  | Cxor, [(fst, _); (snd, _)] ->
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Xor)]     
     in
     result               
-  | Clsl, [fst; snd] ->
+  | Clsl, [(fst, _); (snd, _)] ->
   let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Shl)]     
     in
     result              
-  | Clsr, [fst; snd] ->
+  | Clsr, [(fst, _); (snd, _)] ->
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.ShrU)]     
     in
     result            
-  | Casr, [fst; snd] ->    
+  | Casr, [(fst, _); (snd, _)] ->    
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.ShrS)]     
     in
     result            
-  | Ccmpi Ceq, [fst; snd] ->
+  | Ccmpi Ceq, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (I32 I32Op.Eq)]      
-  | Ccmpi Cne, [fst; snd] ->
+  | Ccmpi Cne, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Ne)]      
-  | Ccmpi Clt, [fst; snd] ->
+  | Ccmpi Clt, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LtS)]      
-  | Ccmpi Cle, [fst; snd] ->
+  | Ccmpi Cle, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LeS)]
-  | Ccmpi Cgt, [fst; snd] ->
+  | Ccmpi Cgt, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GtS)]      
-  | Ccmpi Cge, [fst; snd] ->
+  | Ccmpi Cge, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GeS)]      
   | Caddv, _ -> failwith "caddv" (* pointer addition that produces a [Val] (well-formed Caml value) *)
   (* pointer addition that produces a [Addr] (derived heap pointer) *)
-   | Ccmpa Ceq, [fst; snd] ->
+   | Ccmpa Ceq, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Eq)]
-  | Ccmpa Cne, [fst; snd] ->
+  | Ccmpa Cne, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.Ne)]      
-  | Ccmpa Clt, [fst; snd] ->
+  | Ccmpa Clt, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.LtS)]      
-  | Ccmpa Cle, [fst; snd] ->
+  | Ccmpa Cle, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
       [Compare (I32 I32Op.LeS)]      
-  | Ccmpa Cgt, [fst; snd] ->
+  | Ccmpa Cgt, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Compare (I32 I32Op.GtS)]      
-  | Ccmpa Cge, [fst; snd] ->
+  | Ccmpa Cge, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
       [Compare (I32 I32Op.GeS)]      
-  | Cnegf, [fst] ->
+  | Cnegf, [(fst, _)] ->
     (emit_expr context fst) @
      [Unary (F32 F32Op.Neg)]
-  | Cabsf, [fst] ->
+  | Cabsf, [(fst, _)] ->
     (emit_expr context fst) @
      [Unary (F32 F32Op.Abs)]
-  | Caddf, [fst; snd] ->
+  | Caddf, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Add)]
-  | Csubf, [fst; snd] ->
+  | Csubf, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Sub)]
-  | Cmulf, [fst; snd] ->
+  | Cmulf, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Mul)]
-  | Cdivf, [fst; snd] ->
+  | Cdivf, [(fst, _); (snd, _)] ->
     (emit_expr context fst) @
      (emit_expr context snd) @
      [Binary (F32 F32Op.Div)]
-  | Cfloatofint, [fst] ->
+  | Cfloatofint, [(fst, _)] ->
     (emit_expr context fst) @
      [Convert (F32 F32Op.ReinterpretInt)]
-  | Cintoffloat, [fst] ->
+  | Cintoffloat, [(fst, _)] ->
     (emit_expr context fst) @
      [Convert (I32 I32Op.ReinterpretFloat)]
-  | Ccmpf CFeq, [fst; snd] ->
+  | Ccmpf CFeq, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Eq)]
-  | Ccmpf CFneq, [fst; snd] ->
+  | Ccmpf CFneq, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ne)]
-  | Ccmpf CFlt, [fst; snd] ->
+  | Ccmpf CFlt, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Lt)]
@@ -612,19 +616,19 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     failwith "Not supported yet"
   | Ccmpf CFnge, _ ->
     failwith "Not supported yet"
-  | Ccmpf CFle, [fst; snd] ->
+  | Ccmpf CFle, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Le)]
-  | Ccmpf CFgt, [fst; snd] ->
+  | Ccmpf CFgt, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Gt)]
-  | Ccmpf CFge, [fst; snd] ->
+  | Ccmpf CFge, [(fst, _); (snd, _)] ->
    (emit_expr context fst) @
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
-  | Craise _, [arg] ->     
+  | Craise _, [(arg, _)] ->     
     let previous_has_sibling = !has_sibling in
     has_sibling := true;
     let x = (emit_expr context arg) in
@@ -634,7 +638,7 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
     current_return_type := [];
     result
 
-  | Ccheckbound, [fst; snd] -> 
+  | Ccheckbound, [(fst, _); (snd, _)] -> 
     let fst = (emit_expr context fst) in
     let snd = (emit_expr context snd) in    
     
@@ -660,7 +664,8 @@ let rec to_operations  (context) (expression_list:typed_expression list) (operat
           in
         (i, t, e, false)
       )            
-  | _ -> failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
+  | _ -> 
+    failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in  
   current_return_type := convert_result (oper_result_type operation);    
   result
@@ -675,12 +680,15 @@ and emit_expr (context:context) (expression:typed_expression) =
   | Tconst_float s ->    
     current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]  
-  | Tconst_symbol (symbol, kind, t) ->
-    (      
-      current_return_type := mach_to_wasm t;
+  | Tconst_symbol (symbol, kind) ->
+    (            
       match kind with 
-      | Sfunction -> [Call symbol]
-      | Sdata -> [DataSymbol symbol]
+      | Sfunction (_args, t) -> 
+        current_return_type := mach_to_wasm t;
+        [Call symbol]
+      | Sdata t -> 
+        current_return_type := mach_to_wasm t;
+        [DataSymbol symbol]
     )    
   | Tblockheader (i, _) ->
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
@@ -743,11 +751,11 @@ and emit_expr (context:context) (expression:typed_expression) =
     (* print_local_stack "Ctuple"; *)
     result
     
-  | Top (Capply mt, (Top (Cload _ as op, el, _, _))::tl, _, _) -> (    
+  | Top (Capply mt, (Top (Cload _ as op, el, _, _), _)::tl, _, _) -> (    
     let fn_args = ref [] in
     let previous_sibling = !has_sibling in
     has_sibling := true;
-    let expression_list = List.fold_left (fun lst f ->
+    let expression_list = List.fold_left (fun lst (f, _ft) ->
       let result = emit_expr context f in
       fn_args := !fn_args @ !current_return_type;
       if List.length result > 0 then (
@@ -771,14 +779,11 @@ and emit_expr (context:context) (expression:typed_expression) =
     load_action @
     [CallIndirect name_] @ drop
     )
-  | Top (Capply mt, (Tconst_symbol (hd, _, _))::tl, _, _) -> (    
+  | Top (Capply mt, (Tconst_symbol (hd, kind), _)::tl, _, _) -> (    
     let previous_sibling = !has_sibling in
     has_sibling := true;
-    let (args, expression_list) = List.fold_left (fun lst f -> 
-      let (args, expression_list) = lst in      
-      let expr = emit_expr context f in
-      (args @ !current_return_type, expression_list @ expr)) ([], []) tl 
-      in
+    let expression_list = List.concat (List.map (fun (e, _) -> emit_expr context e) tl) in
+
     let drop = (if Array.length mt = 0 then 
       (current_return_type := [];
       [Drop]) else 
@@ -789,9 +794,13 @@ and emit_expr (context:context) (expression:typed_expression) =
         | _ -> assert false
       );
       [])) in    
-    (if not (func_symbol_exists hd) then (
-      create_import_symbol hd args [I32Type])
-    );
+    (match kind with 
+    | Sfunction (args, rt) -> 
+      if not (func_symbol_exists hd) then (
+        create_import_symbol hd (List.concat (List.map mach_to_wasm args)) (mach_to_wasm rt)
+      );
+    | _ -> assert false);
+    
     has_sibling := previous_sibling;
     expression_list @ [Call hd] @ drop
   )

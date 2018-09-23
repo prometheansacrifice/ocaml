@@ -1,20 +1,20 @@
 open Cmm
 
 type symbol_kind = 
-  | Sfunction
-  | Sdata
+  | Sfunction of machtype list * machtype
+  | Sdata of machtype
 
 type typed_expression =
   | Tconst_int of int
   | Tconst_natint of nativeint
   | Tconst_float of float
-  | Tconst_symbol of string * symbol_kind * machtype
+  | Tconst_symbol of string * symbol_kind
   | Tblockheader of nativeint * Debuginfo.t
   | Tvar of Ident.t * machtype
   | Tlet of Ident.t * typed_expression * machtype * typed_expression
   | Tassign of Ident.t * typed_expression
   | Ttuple of typed_expression list
-  | Top of operation * typed_expression list * Debuginfo.t * machtype
+  | Top of operation * (typed_expression * machtype) list * Debuginfo.t * machtype
   | Tsequence of typed_expression * typed_expression
   | Tifthenelse of typed_expression * typed_expression * typed_expression * machtype
   | Tswitch of typed_expression * int array * typed_expression array * Debuginfo.t * machtype
@@ -60,7 +60,7 @@ type block_stack = block Stack.t
 
 type local = string * machtype
 
-type func_result = string * machtype
+type func_result = string * machtype * (machtype list)
 
 let functions:func_result list ref = ref []
 
@@ -112,7 +112,7 @@ let get_local locals name =
   List.find_opt (fun (n, _) -> n = name) locals  
 
 let get_func name = 
-  List.find_opt (fun (n, _) -> n = name) !functions
+  List.find_opt (fun (n, _, _) -> n = name) !functions
 
 let blockheader_details header =
   let word_size = Nativeint.shift_right header 10 in
@@ -143,15 +143,15 @@ let rec process env e =
         Tconst_float f
     | Cconst_symbol "dropme" ->
         Stack.push typ_void stack;
-        Tconst_symbol ("dropme", Sdata, typ_int)
+        Tconst_symbol ("dropme", (Sdata typ_int))
     | Cconst_symbol s -> 
         let func = get_func s in
-        let (k, t) = match func with 
-        | Some (_, t) -> (Sfunction, t)
-        | None -> (Sdata, typ_int)
+        let (t, k) = match func with 
+        | Some (_, t, args) -> (t, Sfunction (args, t))
+        | None -> (typ_int, Sdata typ_int)
         in
         Stack.push t stack;
-        Tconst_symbol (s, k, t)
+        Tconst_symbol (s, k)
     | Cblockheader (n, d) -> 
         Stack.push typ_int stack;
         Tblockheader (n, d)
@@ -187,9 +187,15 @@ let rec process env e =
         check_stack_plus_one ();
         result
     | Cop (o, el, d) ->
-        (match o, el with
+       let copied_stack = Stack.copy stack in
+       let copied_block_stack = Stack.copy block_stack in
+       let args = List.map (fun e -> 
+          (ignore(process {env with stack = copied_stack; block_stack = copied_block_stack; needs_return = true} e);
+          Stack.top copied_stack)
+        ) el in       
+        (match o, el with        
         | Capply mt, (Cconst_symbol s) :: _ -> 
-            functions := !functions @ [(s, mt)];
+            functions := !functions @ [(s, mt, List.tl args)];
         | Calloc, Cblockheader (header, _) :: rest ->                        
             let (_, tag) = blockheader_details header in
             let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
@@ -197,7 +203,7 @@ let rec process env e =
               List.iter (fun i ->   
                 match i with 
                 | Cconst_symbol s -> 
-                    functions := !functions @ [(s, typ_val)]
+                    functions := !functions @ [(s, typ_val, List.tl args)]
                 | _ -> ()
               ) rest                
             )
@@ -206,7 +212,7 @@ let rec process env e =
         let r = oper_result_type o in    
         let expected_length = Stack.length stack + List.length el in
         let processed = List.map (process {env with needs_return = true}) el in        
-        let result = Top (o, processed, d, r) in         
+        let result = Top (o, List.combine processed args, d, r) in         
         (if Stack.length stack <> expected_length then
             failwith ("Not correct:" ^ string_of_int (Stack.length stack) ^ " vs " ^ string_of_int expected_length)
         );
@@ -342,5 +348,5 @@ let add_types func_name fun_args e =
     (if (Stack.length block_stack <> 1) then 
         failwith ("Block stack was expected to have a length of 1, but got " ^ string_of_int (Stack.length block_stack));
     );    
-    functions := !functions @ [(func_name, Stack.top stack)];
+    functions := !functions @ [(func_name, Stack.top stack, snd (List.split fun_args))];
     (result, Stack.top stack)
