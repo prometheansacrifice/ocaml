@@ -581,22 +581,13 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
   result
 and emit_expr (context:context) (expression:typed_expression) =
   match expression with
-  | Tconst_int i ->     
-    [Const (I32 (I32.of_int_s i))]
-  | Tconst_natint i -> 
-    [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Tconst_float s ->    
-    [Const (F32 (F32.of_float s))]  
-  | Tconst_symbol (symbol, kind) ->
-    (            
-      match kind with 
-      | Sfunction (_args, _t) -> 
-        [Call symbol]
-      | Sdata _t -> 
-        [DataSymbol symbol]
-    )    
-  | Tblockheader (i, _) ->
-    [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Tconst_int i -> [Const (I32 (I32.of_int_s i))]
+  | Tconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+  | Tconst_float f -> [Const (F32 (F32.of_float f))]  
+  | Tconst_symbol (symbol, Sfunction _) -> [Call symbol]
+  | Tconst_symbol (symbol, Sdata _) -> [DataSymbol symbol]
+  | Tblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
+
   | Tvar (ident, _mt) ->
     (try (
       let (var, _, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in  
@@ -1025,7 +1016,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     create_func_symbol fun_name (0, 0);
     
     (* remove unit return value *)    
-    let (typed_cmm, rt) = Typed_cmm.add_types fun_name fun_args fun_body in
+    let (typed_cmm, rt, _locals) = Typed_cmm.add_types fun_name fun_args fun_body in
     let fun_body = emit_expr context typed_cmm in         
     if (Stack.length block_stack <> 0) then (
       failwith "Stack length doesn't equal 0 for some reason..."
