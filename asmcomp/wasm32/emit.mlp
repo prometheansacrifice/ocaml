@@ -304,42 +304,23 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
       expression_list @ instr
     )
   | Calloc, (Tblockheader (header, _), _) :: rest -> (
-      let (word_size, tag) = blockheader_details header in
+      let (word_size, _tag) = blockheader_details header in
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let local_ = bind_local context ("allocate_memory_pointer_" ^ string_of_int counter) [I32Type] in
       let position = ref 0 in
-      let rt = ref typ_int in
-      let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
-      let is_floats = ((Nativeint.to_int tag) land 255) == 254 || ((Nativeint.to_int tag) land 255) == 253 in
-      let calls = List.fold_left (fun calls (f, _rt) ->
+      let calls = List.fold_left (fun calls (f, rt) ->
         let before =  calls @
         [GetLocal local_;
         Const (I32 (I32.of_int_s !position));
         Binary (I32 I32Op.Add)]
         in        
-        let (middle, tox) =
-        (match f with 
-        
-        | Tconst_symbol (symbol, kind) ->     
-          (match kind with 
-          | Sfunction (_args, tx) -> 
-            (assert is_closure;
-            rt := tx)
-          | Sdata tx -> 
-            (assert (is_closure = false);
-            rt := tx));
-          
-          (if is_closure then (
-            ([FuncSymbol symbol], typ_int))
-          else (
-            ([DataSymbol symbol], typ_int)));         
-        | _ as e -> 
-          (if is_floats then               
-              rt := typ_float;            
-          (emit_expr context e, !rt)))
+        let middle = match f with        
+        | Tconst_symbol (symbol, (Sfunction _)) -> [FuncSymbol symbol]
+        | Tconst_symbol (symbol, (Sdata _)) -> [DataSymbol symbol]
+        | _ as e -> emit_expr context e
         in
-        let result = before @ middle @ [Store {ty = List.hd(mach_to_wasm tox); align = 0; offset = 0l; sz = None}]     
+        let result = before @ middle @ [Store {ty = List.hd(mach_to_wasm rt); align = 0; offset = 0l; sz = None}]     
         in
         position := !position + Nativeint.to_int word_size;
         result
