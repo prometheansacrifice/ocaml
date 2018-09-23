@@ -40,7 +40,6 @@ open Wasm_types
 
 module VarMap = Map.Make(String)
 
-
 type local_space = {mutable l_map : (int32 * value_type list * string) VarMap.t; mutable l_count : int32}
 
 type block_stack_item =
@@ -187,8 +186,6 @@ let create_symbol_table () = ( (* TODO: move to encode *)
 
 let bind_local (c : context) name value_types = bind_local c.locals name value_types
 
-let current_return_type = ref []
-
 let unique_name_counter = ref 0
 
 let name s =
@@ -219,54 +216,17 @@ let end_assembly () = (
     symbols = []; (* Move to Encode *)
   };
   context := empty_context ();
-  current_return_type := [];  
 )
-
-let oper_result_type = function
-    Capply ty -> ty
-  | Cextcall(_s, ty, _alloc, _) -> ty
-  | Cload (c, _) ->
-      begin match c with
-      | Word_val -> typ_val
-      | Single | Double | Double_u -> typ_float
-      | _ -> typ_int
-      end
-  | Calloc -> typ_val
-  | Cstore (_c, _) -> typ_void
-  | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi |
-    Cand | Cor | Cxor | Clsl | Clsr | Casr |
-    Ccmpi _ | Ccmpa _ | Ccmpf _ -> typ_int
-  | Caddv -> typ_val
-  | Cadda -> typ_addr
-  | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> typ_float
-  | Cfloatofint -> typ_float
-  | Cintoffloat -> typ_int
-  | Craise _ -> typ_int
-| Ccheckbound -> typ_void
-
-let convert_result = function 
-   | [||] -> []   
-   | [|Float|] -> [F32Type]   
-   | [|Val|]
-   | [|Addr|]
-   | [|Int|] -> 
-      [I32Type]
-   | _ -> assert false
 
 let blockheader_details header =
     let word_size = Nativeint.shift_right header 10 in
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
 
-let has_sibling = ref false
-
 let enter_func () = (
-  has_sibling := true;
   Stack.clear block_stack;
-  current_return_type := [];
   {locals = empty_locals()}
 )
-
 
 let structured_instruction name e s =  
   Stack.push name block_stack;    
@@ -281,7 +241,7 @@ let if_instruction name e =
     e
     (fun e -> 
       let (i, th, e, _dc) = e in
-      i @ [If (!current_return_type, th, e)]
+      i @ [If (mach_to_wasm typ_void, th, e)]
     )
 
 let loop_instruction e = 
@@ -297,14 +257,13 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
   let result = (match operation, expression_list with
   | Capply _, _ -> failwith "!!! This apply is not handled correctly !!!"
   | Cextcall (symbol, mt, _, _), _ -> (            
-      let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) (f, _ft) ->       
+      let (args, expression_list) = (List.fold_left (fun (lst:stack_type * Ast.instr list) (f, ft) ->       
         let (args, expression_list) = lst in
         let expr = emit_expr context f in
-        (args @ !current_return_type, expression_list @ expr)) ([], []) expression_list)
+        (args @ (mach_to_wasm ft), expression_list @ expr)) ([], []) expression_list)
       in
       let drop = if Array.length mt = 0 then 
-        (current_return_type := [];
-        [Drop] )
+        [Drop]
       else 
         [] 
       in
@@ -324,7 +283,6 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
   | Cload (memory_chunk, _), [(el1, _rt)] -> (
       let align = 0 in
       let offset = 0l in
-      (* ignore(Stack.pop local_stack); *)
       let instr = 
          (Ast.Types.(match memory_chunk with
       | Byte_unsigned -> [Load {ty = I32Type; align; offset; sz = Some (Mem8, ZX)}]
@@ -420,45 +378,31 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
   | Caddv, [(fst, _); (snd, _)] (* pointer addition that produces a [Val] (well-formed Caml value) *)    
   | Caddi, [(fst, _); (snd, _)]    
   | Cadda, [(fst, _); (snd, _)] -> (* derived heap pointer *)  
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;      
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
-      [Binary (I32 I32Op.Add)]     
+      [Binary (I32 I32Op.Add)]         
     in
-    has_sibling := previous_has_sibling;
     result        
   | Csubi, [(fst, _); (snd, _)] ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Sub)]     
     in
-    has_sibling := previous_has_sibling;
     result        
   | Cmuli, [(fst, _); (snd, _)]
   | Cmulhi, [(fst, _); (snd, _)] ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Mul)]     
     in
-    has_sibling := previous_has_sibling;
     result                
   | Cdivi, [(fst, _); (snd, _)] ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.DivS)]     
     in
-    has_sibling := previous_has_sibling;
     result                
   | Cmodi, [(fst, _); (snd, _)] ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
     let cmod_local = bind_local context ("cmod_" ^ string_of_int counter) [I32Type] in
@@ -474,25 +418,18 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
       Binary (I32 I32Op.Mul);
       Binary (I32 I32Op.Sub)]
     in 
-    has_sibling := previous_has_sibling;
     result
   | Cand, [(fst, _); (snd, _)] ->    
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.And)]     
     in
-    has_sibling := previous_has_sibling;
     result
   | Cor, [(fst, _); (snd, _)] ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let result = (emit_expr context fst) @
      (emit_expr context snd) @     
       [Binary (I32 I32Op.Or)]     
     in
-    has_sibling := previous_has_sibling;
     result        
   | Cxor, [(fst, _); (snd, _)] ->
     let result = (emit_expr context fst) @
@@ -629,13 +566,9 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
     (emit_expr context snd) @
     [Compare (F32 F32Op.Ge)]
   | Craise _, [(arg, _)] ->     
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;
     let x = (emit_expr context arg) in
-    has_sibling := previous_has_sibling; 
     let result = x @
     [Call "jsRaise_i32_i32"; Br (Int32.of_int (Stack.length block_stack))] in
-    current_return_type := [];
     result
 
   | Ccheckbound, [(fst, _); (snd, _)] -> 
@@ -645,14 +578,11 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
     if_instruction 
       BCheckbound1
       (fun () ->         
-        current_return_type := [];
         let i = fst @ [Const (I32 0l)] @ [Compare (I32 I32Op.LtS)] in
-        current_return_type := [];
         let t = [
           DataSymbol "caml_exn_Invalid_argument";
           Call "jsRaise_i32_unit"
         ] in
-        current_return_type := [];
         let e = (if_instruction
           BCheckbound2
           (fun () -> 
@@ -667,35 +597,28 @@ let rec to_operations  (context) (expression_list:(typed_expression * machtype) 
   | _ -> 
     failwith ("Something is not handled here   ... :" ^ string_of_int (List.length expression_list)))
   in  
-  current_return_type := convert_result (oper_result_type operation);    
   result
 and emit_expr (context:context) (expression:typed_expression) =
   match expression with
   | Tconst_int i ->     
-    current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s i))]
   | Tconst_natint i -> 
-    current_return_type := [I32Type];
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Tconst_float s ->    
-    current_return_type := [F32Type];
     [Const (F32 (F32.of_float s))]  
   | Tconst_symbol (symbol, kind) ->
     (            
       match kind with 
-      | Sfunction (_args, t) -> 
-        current_return_type := mach_to_wasm t;
+      | Sfunction (_args, _t) -> 
         [Call symbol]
-      | Sdata t -> 
-        current_return_type := mach_to_wasm t;
+      | Sdata _t -> 
         [DataSymbol symbol]
     )    
   | Tblockheader (i, _) ->
     [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
-  | Tvar (ident, mt) ->
+  | Tvar (ident, _mt) ->
     (try (
       let (var, _, _) = local context (ident.Ident.name ^ "/" ^ string_of_int ident.Ident.stamp) in  
-      current_return_type := mach_to_wasm mt;    
       [GetLocal var]      
     )
     with
@@ -748,16 +671,13 @@ and emit_expr (context:context) (expression:typed_expression) =
   | Ttuple el ->
     let result = List.fold_left (fun lst f -> 
       lst @ (emit_expr context f)) [] el in
-    (* print_local_stack "Ctuple"; *)
     result
     
   | Top (Capply mt, (Top (Cload _ as op, el, _, _), _)::tl, _, _) -> (    
     let fn_args = ref [] in
-    let previous_sibling = !has_sibling in
-    has_sibling := true;
-    let expression_list = List.fold_left (fun lst (f, _ft) ->
+    let expression_list = List.fold_left (fun lst (f, ft) ->
       let result = emit_expr context f in
-      fn_args := !fn_args @ !current_return_type;
+      fn_args := !fn_args @ (mach_to_wasm ft);
       if List.length result > 0 then (
         lst @ result
       )
@@ -765,35 +685,25 @@ and emit_expr (context:context) (expression:typed_expression) =
         lst
     ) [] tl in
     let load_action = to_operations context el op in
-    has_sibling := previous_sibling;
     let counter = !unique_name_counter in
     unique_name_counter := !unique_name_counter + 1;
     let name_ = "wasm_unique_name_" ^ string_of_int counter in
     let type_:Ast.type_ = {name = name_; details = FuncType (!fn_args, [I32Type])} in    
     let w = !wasm_module in
     let drop = (if Array.length mt = 0 then 
-      (current_return_type := [];
-      [Drop]) else []) in    
+      
+      [Drop] else []) in    
     wasm_module := Ast.{w with types = w.types @ [type_]};
     expression_list @
     load_action @
     [CallIndirect name_] @ drop
     )
   | Top (Capply mt, (Tconst_symbol (hd, kind), _)::tl, _, _) -> (    
-    let previous_sibling = !has_sibling in
-    has_sibling := true;
     let expression_list = List.concat (List.map (fun (e, _) -> emit_expr context e) tl) in
 
     let drop = (if Array.length mt = 0 then 
-      (current_return_type := [];
-      [Drop]) else 
-      (        
-        current_return_type := (match mt with 
-        | [|Val|] | [|Int|] | [|Addr|] -> [I32Type]
-        | [|Float|] -> [F32Type]
-        | _ -> assert false
-      );
-      [])) in    
+      [Drop] else       
+      []) in    
     (match kind with 
     | Sfunction (args, rt) -> 
       if not (func_symbol_exists hd) then (
@@ -801,20 +711,15 @@ and emit_expr (context:context) (expression:typed_expression) =
       );
     | _ -> assert false);
     
-    has_sibling := previous_sibling;
     expression_list @ [Call hd] @ drop
   )
   | Top (operation, expression_list, _, _) ->  
     to_operations context expression_list operation
   | Tsequence (e, Ttuple []) -> (* ignore *)
     let a = emit_expr context e in 
-    current_return_type := [];
     a @ [Drop]        
   | Tsequence (e1, e2) ->
-    let previous_has_sibling = !has_sibling in
-    has_sibling := true;    
     let a = emit_expr context e1 in
-    has_sibling := previous_has_sibling;
     let b = emit_expr context e2 in
     a @ b
   | Tifthenelse (if_, then_, else_, rt) ->           
@@ -828,7 +733,6 @@ and emit_expr (context:context) (expression:typed_expression) =
       let result = [If (mach_to_wasm rt, t, e)] 
       in
       ignore(Stack.pop block_stack);
-      current_return_type := mach_to_wasm rt;
       result
     )
   | Tswitch  (sw, ia, ea, _, t) -> (     
@@ -1140,7 +1044,6 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
     create_func_symbol fun_name (0, 0);
     
     (* remove unit return value *)    
-    current_return_type := [];
     let (typed_cmm, rt) = Typed_cmm.add_types fun_name fun_args fun_body in
     let fun_body = emit_expr context typed_cmm in         
     if (Stack.length block_stack <> 0) then (
