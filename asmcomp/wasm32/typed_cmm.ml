@@ -10,7 +10,7 @@ type typed_expression =
   | Tconst_float of float
   | Tconst_symbol of string * symbol_kind
   | Tblockheader of nativeint * Debuginfo.t
-  | Tvar of Ident.t * machtype
+  | Tvar of Ident.t * machtype * int
   | Tlet of Ident.t * typed_expression * machtype * typed_expression
   | Tassign of Ident.t * typed_expression
   | Ttuple of typed_expression list
@@ -20,7 +20,7 @@ type typed_expression =
   | Tswitch of typed_expression * int array * typed_expression array * Debuginfo.t * machtype
   | Tloop of typed_expression
   | Tcatch of rec_flag * (int * Ident.t list * typed_expression) list * typed_expression * machtype
-  | Texit of int * typed_expression list
+  | Texit of int * typed_expression list * int
   | Ttrywith of typed_expression * Ident.t * typed_expression
 
 type stack = machtype Stack.t
@@ -177,9 +177,9 @@ let rec process env e =
         push typ_int;
         Tblockheader (n, d)
     | Cvar i ->
-        let (_c, (_, t)) = get_local i in        
+        let (pos, (_, t)) = get_local i in        
         push t;
-        Tvar (i, t)
+        Tvar (i, t, pos)
     | Clet (i, r, b) -> 
         let r = process {env with needs_return = true} r in
         add_local (ident i, Stack.top stack);
@@ -315,7 +315,11 @@ let rec process env e =
         let result = Tcatch (
           r, 
           with_exprs, 
-          (let result = process env body_ in            
+          (
+           Stack.push Bcatch block_stack;
+           let result = process env body_ in            
+           ignore(Stack.pop block_stack);
+           ignore(Stack.pop block_stack);
            pop ();
            result),
           (if needs_return then !rt else typ_void)
@@ -326,15 +330,20 @@ let rec process env e =
         result
     | Cexit (i, el) -> 
         let found = ref false in
+        let index = ref (-1) in
         Stack.iter (fun f -> 
             match f with 
             | Bwith (ix, t) when ix = i -> 
                 (found := true;
                  push t)
-            | _ -> ()
+            | _ -> 
+                (if !found = false then
+                    index := !index + 1
+                else 
+                    ())
         ) block_stack;
         assert !found;
-        let result = Texit (i, List.map (process env) el) in
+        let result = Texit (i, List.map (process env) el, !index) in
         List.iter (fun _ -> pop()) el;
         result
     | Ctrywith (body, exn, handler) -> 
