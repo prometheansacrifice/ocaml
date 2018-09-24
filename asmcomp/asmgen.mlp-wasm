@@ -70,6 +70,7 @@ let compile_fundecl (ppf : formatter) fd_cmm =
   ignore(ppf);
   Reg.reset();
   fd_cmm  
+  (* TODO: ++ Profile.record ~accumulate:true "emit" Typed_cmm.add_types *)
   ++ Profile.record ~accumulate:true "emit" Emit.fundecl
 
 let compile_phrase ppf p =

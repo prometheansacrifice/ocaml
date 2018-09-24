@@ -10,9 +10,9 @@ type typed_expression =
   | Tconst_float of float
   | Tconst_symbol of string * symbol_kind
   | Tblockheader of nativeint * Debuginfo.t
-  | Tvar of Ident.t * machtype * int
-  | Tlet of Ident.t * typed_expression * machtype * typed_expression
-  | Tassign of Ident.t * typed_expression
+  | Tvar of Ident.t * machtype * int32
+  | Tlet of Ident.t * typed_expression * machtype * typed_expression * int32
+  | Tassign of Ident.t * typed_expression * int32
   | Ttuple of typed_expression list
   | Top of operation * (typed_expression * machtype) list * Debuginfo.t * machtype
   | Tsequence of typed_expression * typed_expression
@@ -179,16 +179,17 @@ let rec process env e =
     | Cvar i ->
         let (pos, (_, t)) = get_local i in        
         push t;
-        Tvar (i, t, pos)
-    | Clet (i, r, b) -> 
+        Tvar (i, t, Int32.of_int pos)
+    | Clet (i, r, b) ->         
         let r = process {env with needs_return = true} r in
         add_local (ident i, Stack.top stack);
+        let (pos, _) = get_local i in 
         let rt = Stack.top stack in
         pop ();
-        let result = Tlet (i, r, rt, process env b) in
-        result
+        Tlet (i, r, rt, process env b, Int32.of_int pos)        
     | Cassign (i, e) -> 
-        let result = Tassign (i, process {env with needs_return = false} e) in
+        let (pos, _) = get_local i in  
+        let result = Tassign (i, process {env with needs_return = false} e, Int32.of_int pos) in
         pop ();
         push typ_void;
         add_local (ident i, Stack.top stack);
@@ -287,9 +288,11 @@ let rec process env e =
         pop ();
         let cases = Array.map (process env) ea in
         let switch_result = ref typ_void in
-        Array.iter (fun _ -> 
+        Array.iter (fun _ ->
+            Stack.push Bswitch_case block_stack;
             let item = Stack.pop stack in 
-            switch_result := item
+            switch_result := item;
+            ignore(Stack.pop block_stack);
         ) ea;         
         push !switch_result;
         check_stack_plus_one ();
@@ -306,6 +309,7 @@ let rec process env e =
             add_local (ident i, typ_int)
           )) il; 
           let result = (i, il, process env expr) in
+          print_endline "bwith 1";
           Stack.push (Bwith (i, Stack.top stack)) block_stack;          
           rt := Stack.top stack;
           pop ();
@@ -316,10 +320,13 @@ let rec process env e =
           r, 
           with_exprs, 
           (
+           print_endline "bcatch 1";
            Stack.push Bcatch block_stack;
            let result = process env body_ in            
            ignore(Stack.pop block_stack);
+           print_endline "bcatch 2";
            ignore(Stack.pop block_stack);
+           print_endline "bwith 2";
            pop ();
            result),
           (if needs_return then !rt else typ_void)

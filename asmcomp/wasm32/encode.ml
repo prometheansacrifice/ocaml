@@ -104,6 +104,7 @@ let encode m =
       | FuncSymbol symbol :: remaining ->  
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
             not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
+          print_endline ("ADD MISSING:" ^ symbol);
           code_symbols := !code_symbols @ [{
             name = symbol;
             details = Import ([],[])
