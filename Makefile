@@ -175,7 +175,7 @@ WASMCOMP=\
   asmcomp/strmatch.cmo asmcomp/cmmgen.cmo \
   asmcomp/numeric_error.cmo asmcomp/int.cmo asmcomp/i32.cmo asmcomp/i64.cmo \
   asmcomp/lib.cmo asmcomp/wasm_types.cmo asmcomp/float.cmo asmcomp/f32.cmo asmcomp/f64.cmo \
-  asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo asmcomp/typed_cmm.cmo \
+  asmcomp/values.cmo asmcomp/ast.cmo asmcomp/utf8.cmo asmcomp/typed_cmm.cmo asmcomp/linking.cmo \
   asmcomp/emitaux.cmo asmcomp/encode.cmo asmcomp/emit.cmo asmcomp/asmgen.cmo \
   asmcomp/asmlink.cmo asmcomp/asmlibrarian.cmo asmcomp/asmpackager.cmo \
   driver/opterrors.cmo driver/optcompile.cmo
@@ -1020,6 +1020,9 @@ asmcomp/encode.ml: asmcomp/wasm32/encode.ml
 asmcomp/typed_cmm.ml: asmcomp/wasm32/typed_cmm.ml
 	cd asmcomp; $(LN) wasm32/typed_cmm.ml .
 
+asmcomp/linking.ml: asmcomp/wasm32/linking.ml
+	cd asmcomp; $(LN) wasm32/linking.ml .
+
 # asmcomp/emit.ml: asmcomp/ast.ml
 
 
@@ -1036,6 +1039,7 @@ partialclean::
 	rm -f asmcomp/int.ml
 	rm -f asmcomp/numeric_error.ml
 	rm -f asmcomp/typed_cmm.ml
+	rm -f asmcomp/linking.ml
 	rm -f asmcomp/encode.ml
 
 else 
