@@ -1495,9 +1495,11 @@ wasm32-test:
 	
 
 wasm32:
+	rm -f asmcomp/typed_cmm.cmo
+	rm -f asmcomp/linking.cmo	
 	rm -f asmcomp/emit.cmo
 	rm -f asmcomp/encode.cmo
-	rm -f asmcomp/asmgen.cmo
+	rm -f asmcomp/asmgen.cmo	
 	make opt-core
 	make libasmrun-wasm
 	make wasm32-test
