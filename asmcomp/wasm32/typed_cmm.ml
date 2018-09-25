@@ -1,8 +1,8 @@
 open Cmm
 
 type symbol_kind = 
-  | Sfunction of machtype list * machtype
-  | Sdata of machtype
+  | Sfunction
+  | Sdata
 
 type typed_expression =
   | Tconst_int of int
@@ -164,12 +164,12 @@ let rec process env e =
         Tconst_float f
     | Cconst_symbol "dropme" ->
         push typ_void;
-        Tconst_symbol ("dropme", (Sdata typ_int))
+        Tconst_symbol ("dropme", Sdata)
     | Cconst_symbol s -> 
         let func = get_func s in
         let (t, k) = match func with 
-        | Some (_, t, args) -> (t, Sfunction (args, t))
-        | None -> (typ_int, Sdata typ_int)
+        | Some _ -> (typ_int, Sfunction)
+        | None -> (typ_int, Sdata)
         in
         push t;
         Tconst_symbol (s, k)
@@ -221,7 +221,7 @@ let rec process env e =
               List.iter (fun i ->   
                 match i with 
                 | Cconst_symbol s -> 
-                    functions := !functions @ [(s, typ_val, List.tl args)]
+                    functions := !functions @ [(s, typ_int, [])]
                 | _ -> ()
               ) rest                
             )

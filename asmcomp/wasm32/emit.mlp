@@ -263,8 +263,8 @@ let rec to_operations  (expression_list:(typed_expression * machtype) list) (ope
         Binary (I32 I32Op.Add)]
         in        
         let middle = match f with        
-        | Tconst_symbol (symbol, (Sfunction _)) -> [FuncSymbol symbol]
-        | Tconst_symbol (symbol, (Sdata _)) -> [DataSymbol symbol]
+        | Tconst_symbol (symbol, Sfunction) -> [FuncSymbol symbol]
+        | Tconst_symbol (symbol, Sdata) -> [DataSymbol symbol]
         | _ as e -> emit_expr e
         in
         let result = before @ middle @ [Store {ty = List.hd(mach_to_wasm rt); align = 0; offset = 0l; sz = None}]     
@@ -404,8 +404,8 @@ and emit_expr (expression:typed_expression) =
   | Tconst_int i -> [Const (I32 (I32.of_int_s i))]
   | Tconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Tconst_float f -> [Const (F32 (F32.of_float f))]  
-  | Tconst_symbol (symbol, Sfunction _) -> [Call symbol]
-  | Tconst_symbol (symbol, Sdata _) -> [DataSymbol symbol]
+  | Tconst_symbol (symbol, Sfunction) -> [Call symbol]
+  | Tconst_symbol (symbol, Sdata) -> [DataSymbol symbol]
   | Tblockheader (i, _) -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
   | Tvar (_ident, _mt, pos) -> [GetLocal pos]
   | Tassign (_i, e, pos) -> (emit_expr e) @ [SetLocal pos]
@@ -460,6 +460,7 @@ and emit_expr (expression:typed_expression) =
   | Top (Capply mt, (Tconst_symbol (hd, kind), _)::tl, _, _) -> (    
     print_endline ("If not starting with current module name then import:" ^ hd);
     let expression_list = List.concat (List.map (fun (e, _) -> emit_expr e) tl) in
+    let types = List.concat (List.map (fun (_, t) -> mach_to_wasm t) tl) in
     let drop = 
       if Array.length mt = 0 then 
         [Drop] 
@@ -467,9 +468,9 @@ and emit_expr (expression:typed_expression) =
         [] 
     in    
     (match kind with 
-    | Sfunction (args, rt) -> 
+    | Sfunction -> 
       if not (func_symbol_exists hd) then (
-        create_import_symbol hd (List.concat (List.map mach_to_wasm args)) (mach_to_wasm rt)
+        create_import_symbol hd types (mach_to_wasm mt)
       );
     | _ -> assert false);    
     expression_list @ [Call hd] @ drop
