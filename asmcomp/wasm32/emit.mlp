@@ -94,7 +94,7 @@ let func_symbol_exists symbol =
     let name = f.name in
     match f.details with
     | Import _ when name = symbol -> true
-    | Function _ when name = symbol -> true        
+    | Function when name = symbol -> true        
     | _ -> false
   ) w.symbols
 
@@ -109,14 +109,14 @@ let is_import symbol =
   ) w.symbols
 
 (* TODO should be moved to linking ir *)
-let create_func_symbol symbol mt = 
+let create_func_symbol symbol _mt = 
   if symbol = "" then failwith "2 Name can't be empty";
   if not (func_symbol_exists symbol) then (    
     let w = !wasm_module in
     wasm_module := {w with 
       symbols = w.symbols @ [{
         name = symbol;
-        details = Function (0, 0)
+        details = Function
       }]
     }
   )
@@ -126,7 +126,7 @@ let create_func_symbol symbol mt =
       if (s.name = symbol) then
         {
         name = symbol;
-        details = Function mt
+        details = Function
       }
       
       else s
