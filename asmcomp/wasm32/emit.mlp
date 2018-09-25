@@ -179,8 +179,8 @@ let end_assembly () = (
   create_symbol_table ();
   (* let symbol_table = Linking.create_symbol_table !wasm_module !tc in *)
   (* ignore(symbol_table); *)
-  ignore(Linking.create_symbol_table !wasm_module);
-  Encode.encode !wasm_module;
+  let w = Linking.create_symbol_table !wasm_module in
+  Encode.encode w;
 
   wasm_module := {
     types = [];
