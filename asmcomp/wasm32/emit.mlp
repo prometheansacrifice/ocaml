@@ -123,13 +123,12 @@ let create_func_symbol symbol _mt =
   else if is_import symbol then (
     let w = !wasm_module in
     wasm_module := {w with symbols = List.map (fun s -> (
-      if (s.name = symbol) then
-        {
+      if (s.name = symbol) then {
         name = symbol;
         details = Function
       }
-      
-      else s
+      else 
+        s
           )) w.symbols
     }
   )
@@ -147,24 +146,6 @@ let create_import_symbol name args result =
     }
   )
 
-(* TODO should be moved to linking ir *)
-let create_symbol_table () = ( (* TODO: move to encode *)
-  let w = !wasm_module in
-  let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
-    {
-    name = g.name;
-    details = Global ({
-      index = Int32.of_int i;      
-    })
-  }) w.globals)
-  in
-  wasm_module := {w with
-    symbols =
-      w.symbols @ global_symbols 
-  }
-)
-
-
 let unique_name_counter = ref 0
 
 let name s =
@@ -176,9 +157,6 @@ let global_offset = ref 0
 let tc: typed_expression option ref = ref None
 
 let end_assembly () = (  
-  create_symbol_table ();
-  (* let symbol_table = Linking.create_symbol_table !wasm_module !tc in *)
-  (* ignore(symbol_table); *)
   let w = Linking.create_symbol_table !wasm_module in
   Encode.encode w;
 
@@ -206,10 +184,6 @@ let blockheader_details header =
     let word_size = Nativeint.shift_right header 10 in
     let tag = (Nativeint.logand header 255n) in
     (word_size, tag)
-
-let enter_func () = (
-  Stack.clear block_stack;
-)
 
 let structured_instruction name e s =  
   Stack.push name block_stack;    
@@ -702,27 +676,14 @@ let begin_assembly () = (
 )
 
 let fundecl ({fun_name; fun_args; fun_body; _}) = ( 
-    (* print_endline ("Function: " ^ fun_name); *)
-    enter_func ();
+    Stack.clear block_stack;
     let (typed_cmm, rt, ll) = Typed_cmm.add_types fun_name fun_args fun_body in
     tc := Some typed_cmm;
     locals := ll;
     
-    let args = ref [] in
-    List.iter (fun (_, mt) ->
-      let value_type = match mt with
-      | [|Val|]
-      | [|Addr|]
-      | [|Int|] -> I32Type
-      | [|Float|] -> F32Type
-      | _ -> failwith "Unexpected combination of machtypes"
-      in
-      args := [value_type] @ !args;      
-    ) fun_args;
+    let args = List.fold_left (fun a b -> a @ mach_to_wasm (snd b)) [] fun_args in
 
-
-    create_func_symbol fun_name (0, 0);
-        
+    create_func_symbol fun_name (0, 0);        
     
     let fun_body = emit_expr typed_cmm in         
     let locals = !locals in
@@ -730,7 +691,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) = (
       failwith "Stack length doesn't equal 0 for some reason..."
     );
     let body = fun_body in    
-    let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (!args, mach_to_wasm rt)} in
+    let type_:Ast.type_ = {name = fun_name; details = Types.FuncType (args, mach_to_wasm rt)} in
     
     let locals = List.map (fun (name, t) -> 
       if t = typ_void then 

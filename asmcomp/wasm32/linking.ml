@@ -1,4 +1,4 @@
-(* open Ast *)
+open Ast
 open Values
 
 type symbol_kind = 
@@ -18,6 +18,17 @@ let name s =
       failwith "invalid UTF-8 encoding"
 
 let create_symbol_table m = (
+  let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
+    {
+      name = g.name;
+      details = Global ({
+        index = Int32.of_int i;      
+      })
+    }
+  ) m.globals)
+  in
+  let m = {m with symbols = m.symbols @ global_symbols }
+  in
   let check_duplicates symbols = Ast.(
     let used_names:string list ref = ref [] in
     List.iter (fun symbol -> 
