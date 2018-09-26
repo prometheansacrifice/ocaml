@@ -337,9 +337,8 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
       | Ccmpf CFnle -> failwith "Not supported yet"
       | Ccmpf CFnge -> failwith "Not supported yet"
       | Craise _ -> [Call "jsRaise_i32_i32"; Return]
-      | _ -> 
-        failwith ("Something is not handled here:" ^ string_of_int (List.length expression_list))
-      )
+      | _ -> failwith ("Something is not handled here:" ^ string_of_int (List.length expression_list))
+    )
   and emit_expr expression =
     match expression with
     | Tconst_int i -> [Const (I32 (I32.of_int_s i))]
@@ -356,7 +355,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
       if (arg_rt <> []) then (
         result
         @
-          [SetLocal pos]
+        [SetLocal pos]
         @
         (emit_expr fn_body)    
       )
@@ -631,10 +630,10 @@ let data dl =
     wasm_module := {w with symbols = w.symbols @ [{
       name = !symbol_name;
       details = Data ({
-          index = 0l;
-          relocation_offset = 0l;
-          size =  Int32.of_int !offset;
-          offset = Int32.of_int start_offset
+        index = 0l;
+        relocation_offset = 0l;
+        size =  Int32.of_int !offset;
+        offset = Int32.of_int start_offset
       })
     }]};
     
@@ -645,12 +644,12 @@ let data dl =
     (* to make sure that this is always seen as data and not an integer *)
     (if !global_offset land 1 <> 0 then global_offset := !global_offset + 1);
     wasm_module := Ast.{w with data = w.data @ [{
-    index =  0l;
-    offset = [Const (I32 (I32.of_int_s start_offset))];
-    init = {
+      index =  0l;
+      offset = [Const (I32 (I32.of_int_s start_offset))];
+      init = {
         name = !symbol_name;
         detail = !init
-    }
+      }
     }];
   }
 )

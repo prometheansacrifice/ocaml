@@ -61,18 +61,18 @@ type block_stack = block Stack.t
 
 type local = string * machtype
 
-type func_result = string * Ast.Types.stack_type * (Ast.Types.stack_type list)
+type func_result = string * stack_type * (stack_type list)
 
 let functions:func_result list ref = ref []
 
-let mach_to_wasm = Cmm.(Wasm_types.(function 
+let mach_to_wasm = function 
   | [||] -> []   
   | [|Float|] -> [F32Type]   
   | [|Val|]
   | [|Addr|]
   | [|Int|] -> 
     [I32Type]
-  | _ -> assert false))
+  | _ -> assert false
 
 let oper_result_type = function
   | Capply ty -> ty
@@ -127,11 +127,12 @@ let blockheader_details header =
   (word_size, tag)
 
 let add_local env local =
-  let locals = env.locals in
-  if not (List.exists (fun f -> f = local) !locals) then (      
+  let (l, _) = local in
+  let locals = env.locals in  
+  if not (List.exists (fun (f, _) -> f = l) !locals) then (      
     env.locals := !locals @ [local]
   )
-
+(* 
 let isprefix s1 s2 =
   String.length s1 <= String.length s2
   && String.sub s2 0 (String.length s1) = s1
@@ -139,7 +140,7 @@ let isprefix s1 s2 =
 let is_generic_function name =
   List.exists
     (fun p -> isprefix p name)
-    ["caml_apply"; "caml_curry"; "caml_send"; "caml_tuplify"]
+    ["caml_apply"; "caml_curry"; "caml_send"; "caml_tuplify"] *)
 
 let rec process env e = 
   let stack = env.stack in

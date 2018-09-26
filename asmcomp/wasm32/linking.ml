@@ -5,6 +5,10 @@ let name s =
     try Utf8.decode s with Utf8.Utf8 ->
       failwith "invalid UTF-8 encoding"
 
+let isprefix s1 s2 =
+  String.length s1 <= String.length s2
+  && String.sub s2 0 (String.length s1) = s1
+
 let create_symbol_table m fti = (
   let get_func name = 
     List.find_opt (fun (n, _, _) -> n = name) fti
@@ -44,15 +48,27 @@ let create_symbol_table m fti = (
             let s = get_func symbol in
             (match s with 
             | Some (_, rt, args) -> 
-              [{
-                name = symbol;
-                details = Import (List.fold_left (fun a i -> a @ i) [] args, rt)
-              }]
+               if (isprefix "caml_curry" symbol) then
+                Ast.Types.[{
+                  name = symbol;
+                  details = Import ([I32Type; I32Type], [I32Type])
+                }]
+              else 
+                [{
+                  name = symbol;
+                  details = Import (List.fold_left (fun a i -> a @ i) [] args, rt)
+                }]
             | None -> 
-              [{
-                name = symbol;
-                details = Import ([], [])
-              }])
+              if (isprefix "caml_curry" symbol) then
+                Ast.Types.[{
+                  name = symbol;
+                  details = Import ([I32Type; I32Type], [I32Type])
+                }]
+              else 
+                [{
+                  name = symbol;
+                  details = Import ([], [])
+                }])
         | _ -> [])
     ) a detail     
   )) m.symbols m.data)} 
@@ -69,11 +85,19 @@ let create_symbol_table m fti = (
             let s = get_func symbol in
             match s with 
             | Some (_, rt, args) -> 
-              code_symbols := !code_symbols @ [{
-                name = symbol;
-                details = Import (List.fold_left (fun a i -> a @ i) [] args, rt)
-              }]
+              code_symbols := !code_symbols @
+              (if (isprefix "caml_curry" symbol) then
+                Ast.Types.[{
+                  name = symbol;
+                  details = Import ([I32Type; I32Type], [I32Type])
+                }]
+              else 
+                 [{
+                  name = symbol;
+                  details = Import (List.fold_left (fun a i -> a @ i) [] args, Ast.Types.(match rt with [F32Type] -> [F32Type] | _ -> [I32Type]))
+                }])
             | None -> 
+              
               code_symbols := !code_symbols @ [{
                 name = symbol;
                 details = Import ([], [])
