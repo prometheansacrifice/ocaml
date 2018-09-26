@@ -87,65 +87,6 @@ let add_local local =
   locals := !locals @ [local];  
   Int32.of_int (List.length !locals - 1)
 
-(* TODO should be moved to linking ir *)
-let func_symbol_exists symbol = 
-  let w = !wasm_module in
-  List.exists (fun f -> 
-    let name = f.name in
-    match f.details with
-    | Import _ when name = symbol -> true
-    | Function when name = symbol -> true        
-    | _ -> false
-  ) w.symbols
-
-(* TODO should be moved to linking ir *)
-let is_import symbol = 
-  let w = !wasm_module in
-  List.exists (fun f -> 
-    let name = f.name in
-    match f.details with
-    | Import _ when name = symbol -> true
-    | _ -> false
-  ) w.symbols
-
-(* TODO should be moved to linking ir *)
-let create_func_symbol symbol _mt = 
-  if symbol = "" then failwith "2 Name can't be empty";
-  if not (func_symbol_exists symbol) then (    
-    let w = !wasm_module in
-    wasm_module := {w with 
-      symbols = w.symbols @ [{
-        name = symbol;
-        details = Function
-      }]
-    }
-  )
-  else if is_import symbol then (
-    let w = !wasm_module in
-    wasm_module := {w with symbols = List.map (fun s -> (
-      if (s.name = symbol) then {
-        name = symbol;
-        details = Function
-      }
-      else 
-        s
-          )) w.symbols
-    }
-  )
-
-(* TODO should be moved to linking ir *)
-let create_import_symbol name args result =
-  if name = "" then failwith "Name can't be empty";  
-  if not (func_symbol_exists name) then (    
-    let w = !wasm_module in
-    wasm_module := {w with 
-      symbols = w.symbols @ [{
-        name = name;
-        details = Import (args, result)
-      }]
-    }
-  )
-
 let unique_name_counter = ref 0
 
 let name s =
@@ -155,9 +96,10 @@ let name s =
 let global_offset = ref 0
 
 let tc: typed_expression option ref = ref None
+let functions:func_result list ref = ref [] 
 
 let end_assembly () = (  
-  let w = Linking.create_symbol_table !wasm_module in
+  let w = Linking.create_symbol_table !wasm_module !functions in
   Encode.encode w;
 
   wasm_module := {
@@ -203,22 +145,14 @@ let if_instruction name e =
 
 let rec to_operations  (expression_list:(typed_expression * machtype) list) (operation:Cmm.operation) : Ast.instr list = 
   let el = List.concat (List.map (fun (e, _) -> emit_expr e) expression_list) in
-  let el_types = List.concat (List.map (fun (_, t) -> mach_to_wasm t) expression_list) in
   let result = (match operation, expression_list with
-  | Cextcall (symbol, mt, _, _), _ -> 
-    print_endline ("Create an import for :" ^ symbol);
+  | Cextcall (symbol, mt, _, _), _ ->
     let drop =   
       if Array.length mt = 0 then 
         [Drop]
       else 
         [] 
-    in
-    (* TODO: move to linking *)
-    if not (func_symbol_exists symbol) then (
-      match mt with 
-      | [|Float|] -> create_import_symbol symbol el_types [F32Type]
-      | _ -> create_import_symbol symbol el_types [I32Type]
-    );
+    in    
     el
     @ 
     [Call symbol] 
@@ -431,22 +365,15 @@ and emit_expr (expression:typed_expression) =
     load_action @
     [CallIndirect name_] @ drop
     )
-  | Top (Capply mt, (Tconst_symbol (hd, kind), _)::tl, _, _) -> (    
+  | Top (Capply mt, (Tconst_symbol (hd, _), _)::tl, _, _) -> (    
     print_endline ("If not starting with current module name then import:" ^ hd);
-    let expression_list = List.concat (List.map (fun (e, _) -> emit_expr e) tl) in
-    let types = List.concat (List.map (fun (_, t) -> mach_to_wasm t) tl) in
+    let expression_list = List.concat (List.map (fun (e, _) -> emit_expr e) tl) in    
     let drop = 
       if Array.length mt = 0 then 
         [Drop] 
       else       
         [] 
-    in    
-    (match kind with 
-    | Sfunction -> 
-      if not (func_symbol_exists hd) then (
-        create_import_symbol hd types (mach_to_wasm mt)
-      );
-    | _ -> assert false);    
+    in        
     expression_list @ [Call hd] @ drop
   )
   | Top (operation, expression_list, _, _) -> to_operations expression_list operation
@@ -645,15 +572,6 @@ let begin_assembly () = (
   ]
   in
 
-  
-  create_import_symbol "jsTryWith" [] [];
-  create_import_symbol "jsRaise_i32_i32" [] [];
-  create_import_symbol "jsRaise_i32_unit" [] [];
-  create_import_symbol "caml_fresh_oo_id" [] [];
-  create_import_symbol "caml_alloc" [] [];
-  (* create_import_symbol "camlCamlinternalFormatBasics__entry" [||]; *)
-  (* create_import_symbol "camlPervasives__entry" [] []; *)
-
   let exports = [
   {
     name = name "table";
@@ -677,13 +595,12 @@ let begin_assembly () = (
 
 let fundecl ({fun_name; fun_args; fun_body; _}) = ( 
     Stack.clear block_stack;
-    let (typed_cmm, rt, ll) = Typed_cmm.add_types fun_name fun_args fun_body in
+    let (typed_cmm, rt, ll, fns) = Typed_cmm.add_types fun_name fun_args fun_body in
+    functions := fns;
     tc := Some typed_cmm;
     locals := ll;
     
     let args = List.fold_left (fun a b -> a @ mach_to_wasm (snd b)) [] fun_args in
-
-    create_func_symbol fun_name (0, 0);        
     
     let fun_body = emit_expr typed_cmm in         
     let locals = !locals in
@@ -742,17 +659,8 @@ and data dl = (
         | Csymbol_address symbol -> (            
             let add =
               if is_closure then               
-                ((if not (func_symbol_exists symbol) then (                  
-                  print_endline ("Create import " ^ symbol); 
-                  create_import_symbol symbol [] [];
-                  [FunctionLoc symbol] 
-                  )
-                  else 
-                    [FunctionLoc symbol]
-                  )
-                )
+                [FunctionLoc symbol]
               else  
-                
                 [Symbol symbol]
             in
             init := !init @ add;

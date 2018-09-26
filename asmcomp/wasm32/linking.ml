@@ -17,7 +17,19 @@ let name s =
     try Utf8.decode s with Utf8.Utf8 ->
       failwith "invalid UTF-8 encoding"
 
-let create_symbol_table m = (
+let mach_to_wasm = Cmm.(Wasm_types.(function 
+   | [||] -> []   
+   | [|Float|] -> [F32Type]   
+   | [|Val|]
+   | [|Addr|]
+   | [|Int|] -> 
+      [I32Type]
+   | _ -> assert false))
+
+let create_symbol_table m fti = (
+  let get_func name = 
+    List.find_opt (fun (n, _, _) -> n = name) fti
+  in
   let global_symbols = (List.mapi (fun i (g:Ast.global) -> 
     {
       name = g.name;
@@ -26,8 +38,6 @@ let create_symbol_table m = (
       })
     }
   ) m.globals)
-  in
-  let m = {m with symbols = m.symbols @ global_symbols }
   in
   let check_duplicates symbols = Ast.(
     let used_names:string list ref = ref [] in
@@ -39,19 +49,59 @@ let create_symbol_table m = (
     ) symbols
   )
   in 
+  let m = {m with symbols = m.symbols @ global_symbols } in
+  let m = {m with symbols = m.symbols @ (List.map (fun (f:Ast.func) ->(
+    {
+    name = f.name;
+    details = Function
+  })) m.funcs)} 
+  in
   check_duplicates m.Ast.symbols;
-  let fix_missing_symbols () = Ast.(
+  let m = {m with symbols = (List.fold_left (fun a {init = {detail; _}; _} -> (
+    List.fold_left (fun a d -> 
+      a @ (        
+        match d with 
+        | FunctionLoc symbol when not (List.exists (fun f -> f.name = symbol) a) -> 
+            let s = get_func symbol in
+            (match s with 
+            | Some (_, rt, args) -> 
+              [{
+                name = symbol;
+                details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
+              }]
+            | None -> 
+              print_endline ("NOPE for:" ^ symbol);
+              [{
+                name = symbol;
+                details = Import ([], [])
+              }])
+        | _ -> [])
+    ) a detail     
+  )) m.symbols m.data)} 
+  in
+  check_duplicates m.Ast.symbols;
+  let add_missing_symbols () = Ast.(
     let code_symbols = ref [] in
     let rec handle_expr instr =
       (match instr with
+      | Call symbol :: remaining
       | FuncSymbol symbol :: remaining ->  
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
             not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (
-          print_endline ("ADD MISSING:" ^ symbol);
-          code_symbols := !code_symbols @ [{
-            name = symbol;
-            details = Import ([],[])
-          }])
+            let s = get_func symbol in
+            match s with 
+            | Some (_, rt, args) -> 
+              code_symbols := !code_symbols @ [{
+                name = symbol;
+                details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
+              }]
+            | None -> 
+              print_endline ("NOPE for 2:" ^ symbol);
+              code_symbols := !code_symbols @ [{
+                name = symbol;
+                details = Import ([], [])
+              }]
+          )
         );
         handle_expr remaining              
       | DataSymbol symbol :: remaining ->                
@@ -83,7 +133,7 @@ let create_symbol_table m = (
     List.iter (fun (f:Ast.func) -> handle_expr f.body) m.funcs;
     {m with symbols = m.symbols @ !code_symbols})
   in 
-  let m = fix_missing_symbols () in
+  let m = add_missing_symbols () in
   check_duplicates m.Ast.symbols;
   let turn_missing_functions_to_imports () = Ast.( 
     let missing_imports = List.filter (fun symbol ->
@@ -110,6 +160,7 @@ let create_symbol_table m = (
       | _ -> assert false
       in 
       let empty_type:Ast.type_ = {name = name_; details = Types.FuncType (arg, result)} in
+      print_endline ("add import here:" ^ key);
       types := !types @ [empty_type];
       imports := !imports @ [{
         module_name = name "libasmrun";

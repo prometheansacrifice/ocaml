@@ -221,6 +221,8 @@ let rec process env e =
           Stack.top copied_stack)
         ) el in       
         (match o, el with        
+        | Cextcall (s, mt, _, _), _ ->
+            functions := !functions @ [(s, (if mt = typ_float then typ_float else typ_int), args)];
         | Capply mt, (Cconst_symbol s) :: _ -> 
             functions := !functions @ [(s, mt, List.tl args)];
         | Calloc, Cblockheader (header, _) :: rest ->                        
@@ -403,4 +405,4 @@ let add_types func_name fun_args e =
         failwith ("Block stack was expected to have a length of 1, but got " ^ string_of_int (Stack.length block_stack));
     );    
     functions := !functions @ [(func_name, Stack.top stack, snd (List.split fun_args))];
-    (result, Stack.top stack, !locals)
+    (result, Stack.top stack, !locals, !functions)
