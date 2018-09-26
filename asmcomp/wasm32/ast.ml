@@ -154,8 +154,8 @@ type memory_segment = string segment
 (* Modules *)
 
 type type_ = {
-  name: string;
-  details: func_type
+  tname: string;
+  tdetails: func_type
 }
 
 type export_desc =

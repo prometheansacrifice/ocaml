@@ -234,8 +234,8 @@ let encode m =
 
     let find_type x = 
       let rec iter result = function
-        | ({name}:Ast.type_) :: remaining when name = x -> result
-        | ({name}:Ast.type_) :: remaining -> iter (Int32.add result 1l) remaining
+        | ({tname}:Ast.type_) :: remaining when tname = x -> result
+        | ({tname}:Ast.type_) :: remaining -> iter (Int32.add result 1l) remaining
         | [] -> result
       in
       iter 0l m.types 
@@ -548,7 +548,7 @@ let encode m =
       end
 
     (* Type section *)
-    let type_ (t:Ast.type_) = func_type t.details
+    let type_ (t:Ast.type_) = func_type t.tdetails
 
     let type_section ts =
       section 1 (vec type_) ts (ts <> [])

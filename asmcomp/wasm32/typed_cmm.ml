@@ -122,14 +122,14 @@ let add_local env local =
     env.locals := !locals @ [local]
   )
 
-(* let isprefix s1 s2 =
+let isprefix s1 s2 =
   String.length s1 <= String.length s2
   && String.sub s2 0 (String.length s1) = s1
 
 let is_generic_function name =
   List.exists
     (fun p -> isprefix p name)
-    ["caml_apply"; "caml_curry"; "caml_send"; "caml_tuplify"] *)
+    ["caml_apply"; "caml_curry"; "caml_send"; "caml_tuplify"]
 
 let rec process env e = 
   let stack = env.stack in
@@ -230,19 +230,8 @@ let rec process env e =
             let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
             if is_closure then (
               List.iter (fun i ->   
-                match i with 
+                match i with                 
                 | Cconst_symbol s ->
-                    (* if (is_generic_function s) then (
-                        let str = String.to_seq s in
-                        let s3 = String.of_seq (
-                            Seq.filter (fun s -> match s with 
-                            | 'a' .. 'z'
-                            | 'A' .. 'Z'
-                            | '_' -> false
-                            | _ -> true) str 
-                        ) in
-                        print_endline ("check:" ^ s3)
-                    ); *)
                     functions := !functions @ [(s, typ_int, [])]
                 | _ -> ()
               ) rest                

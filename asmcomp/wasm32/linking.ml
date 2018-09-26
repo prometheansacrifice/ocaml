@@ -70,7 +70,6 @@ let create_symbol_table m fti = (
                 details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
               }]
             | None -> 
-              print_endline ("NOPE for:" ^ symbol);
               [{
                 name = symbol;
                 details = Import ([], [])
@@ -96,7 +95,6 @@ let create_symbol_table m fti = (
                 details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
               }]
             | None -> 
-              print_endline ("NOPE for 2:" ^ symbol);
               code_symbols := !code_symbols @ [{
                 name = symbol;
                 details = Import ([], [])
@@ -153,14 +151,10 @@ let create_symbol_table m fti = (
       let key = symbol.name in
       let name_ = ("empty_type_" ^ key) in
       let (arg, result) = match symbol.details with 
-      | Import i -> i
-      | Function -> 
-        print_endline "WRONG: fix me please";
-        ([], []) 
+      | Import i -> i      
       | _ -> assert false
       in 
-      let empty_type:Ast.type_ = {name = name_; details = Types.FuncType (arg, result)} in
-      print_endline ("add import here:" ^ key);
+      let empty_type = {tname = name_; tdetails = Types.FuncType (arg, result)} in
       types := !types @ [empty_type];
       imports := !imports @ [{
         module_name = name "libasmrun";
