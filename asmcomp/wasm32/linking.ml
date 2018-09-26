@@ -1,30 +1,9 @@
 open Ast
 open Values
 
-type symbol_kind = 
-  | Lfunction of string * int32
-  | Ldata of string * ((int32 * int32 * int32) option)
-  | Lsection of int32  
-
-type symbol = {
-  symbol: symbol_kind;
-  flags: int32;
-}
-
-type symbol_table = symbol list
-
 let name s =
     try Utf8.decode s with Utf8.Utf8 ->
       failwith "invalid UTF-8 encoding"
-
-let mach_to_wasm = Cmm.(Wasm_types.(function 
-   | [||] -> []   
-   | [|Float|] -> [F32Type]   
-   | [|Val|]
-   | [|Addr|]
-   | [|Int|] -> 
-      [I32Type]
-   | _ -> assert false))
 
 let create_symbol_table m fti = (
   let get_func name = 
@@ -67,7 +46,7 @@ let create_symbol_table m fti = (
             | Some (_, rt, args) -> 
               [{
                 name = symbol;
-                details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
+                details = Import (List.fold_left (fun a i -> a @ i) [] args, rt)
               }]
             | None -> 
               [{
@@ -92,7 +71,7 @@ let create_symbol_table m fti = (
             | Some (_, rt, args) -> 
               code_symbols := !code_symbols @ [{
                 name = symbol;
-                details = Import (List.fold_left (fun a i -> a @ (mach_to_wasm i)) [] args, mach_to_wasm rt)
+                details = Import (List.fold_left (fun a i -> a @ i) [] args, rt)
               }]
             | None -> 
               code_symbols := !code_symbols @ [{

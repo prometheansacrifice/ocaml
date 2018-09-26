@@ -1,4 +1,5 @@
 open Cmm
+open Ast.Types
 
 type symbol_kind = 
   | Sfunction
@@ -10,16 +11,16 @@ type typed_expression =
   | Tconst_float of float
   | Tconst_symbol of string * symbol_kind
   | Tblockheader of nativeint * Debuginfo.t
-  | Tvar of Ident.t * machtype * int32
-  | Tlet of Ident.t * typed_expression * machtype * typed_expression * int32
+  | Tvar of Ident.t * stack_type * int32
+  | Tlet of Ident.t * typed_expression * stack_type * typed_expression * int32
   | Tassign of Ident.t * typed_expression * int32
   | Ttuple of typed_expression list
-  | Top of operation * (typed_expression * machtype) list * Debuginfo.t * machtype
+  | Top of operation * (typed_expression * stack_type) list * Debuginfo.t * stack_type
   | Tsequence of typed_expression * typed_expression
-  | Tifthenelse of typed_expression * typed_expression * typed_expression * machtype
-  | Tswitch of typed_expression * int array * typed_expression array * Debuginfo.t * machtype
+  | Tifthenelse of typed_expression * typed_expression * typed_expression * stack_type
+  | Tswitch of typed_expression * int array * typed_expression array * Debuginfo.t * stack_type
   | Tloop of typed_expression
-  | Tcatch of rec_flag * (int * Ident.t list * typed_expression) list * typed_expression * machtype
+  | Tcatch of rec_flag * (int * Ident.t list * typed_expression) list * typed_expression * stack_type
   | Texit of int * typed_expression list * int
   | Ttrywith of typed_expression * Ident.t * typed_expression
 
@@ -60,9 +61,18 @@ type block_stack = block Stack.t
 
 type local = string * machtype
 
-type func_result = string * machtype * (machtype list)
+type func_result = string * Ast.Types.stack_type * (Ast.Types.stack_type list)
 
 let functions:func_result list ref = ref []
+
+let mach_to_wasm = Cmm.(Wasm_types.(function 
+  | [||] -> []   
+  | [|Float|] -> [F32Type]   
+  | [|Val|]
+  | [|Addr|]
+  | [|Int|] -> 
+    [I32Type]
+  | _ -> assert false))
 
 let oper_result_type = function
   | Capply ty -> ty
@@ -188,14 +198,14 @@ let rec process env e =
     | Cvar i ->
         let (pos, (_, t)) = get_local i in        
         push t;
-        Tvar (i, t, Int32.of_int pos)
+        Tvar (i, mach_to_wasm t, Int32.of_int pos)
     | Clet (i, r, b) ->         
         let r = process {env with needs_return = true} r in
         add_local (ident i, Stack.top stack);
         let (pos, _) = get_local i in 
         let rt = Stack.top stack in
         pop ();
-        Tlet (i, r, rt, process env b, Int32.of_int pos)        
+        Tlet (i, r, mach_to_wasm rt, process env b, Int32.of_int pos)        
     | Cassign (i, e) -> 
         let (pos, _) = get_local i in  
         let result = Tassign (i, process {env with needs_return = false} e, Int32.of_int pos) in
@@ -216,15 +226,15 @@ let rec process env e =
     | Cop (o, el, d) ->
        let copied_stack = Stack.copy stack in
        let copied_block_stack = Stack.copy block_stack in
-       let args = List.map (fun e -> 
+       let args = List.fold_left (fun a e -> 
           (ignore(process {env with stack = copied_stack; block_stack = copied_block_stack; needs_return = true} e);
-          Stack.top copied_stack)
-        ) el in       
+          a @ [mach_to_wasm (Stack.top copied_stack)]
+        )) [] el in       
         (match o, el with        
         | Cextcall (s, mt, _, _), _ ->
-            functions := !functions @ [(s, (if mt = typ_float then typ_float else typ_int), args)];
+            functions := !functions @ [(s, mach_to_wasm (if mt = typ_float then typ_float else typ_int), args)];
         | Capply mt, (Cconst_symbol s) :: _ -> 
-            functions := !functions @ [(s, mt, List.tl args)];
+            functions := !functions @ [(s, mach_to_wasm mt, List.tl args)];
         | Calloc, Cblockheader (header, _) :: rest ->                        
             let (_, tag) = blockheader_details header in
             let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
@@ -232,7 +242,7 @@ let rec process env e =
               List.iter (fun i ->   
                 match i with                 
                 | Cconst_symbol s ->
-                    functions := !functions @ [(s, typ_int, [])]
+                    functions := !functions @ [(s, mach_to_wasm typ_int, [])]
                 | _ -> ()
               ) rest                
             )
@@ -241,7 +251,7 @@ let rec process env e =
         let operation_type = oper_result_type o in    
         let expected_length = Stack.length stack + List.length el in
         let processed = List.map (process {env with needs_return = true}) el in        
-        let result = Top (o, List.combine processed args, d, operation_type) in         
+        let result = Top (o, List.combine processed args, d, mach_to_wasm operation_type) in         
         (if Stack.length stack <> expected_length then
             failwith ("Not correct:" ^ string_of_int (Stack.length stack) ^ " vs " ^ string_of_int expected_length)
         );
@@ -289,7 +299,7 @@ let rec process env e =
             (processed_t, processed_e, then_type)
         )
         in
-        let result = Tifthenelse (processed_i, processed_t, processed_e, (if needs_return then rt else typ_void)) in
+        let result = Tifthenelse (processed_i, processed_t, processed_e, mach_to_wasm (if needs_return then rt else typ_void)) in
         push rt;
         ignore(Stack.pop block_stack);
         check_stack_plus_one ();
@@ -307,7 +317,7 @@ let rec process env e =
         ) ea;         
         push !switch_result;
         check_stack_plus_one ();
-        Tswitch (match_, ia, cases, d, Stack.top stack)
+        Tswitch (match_, ia, cases, d, mach_to_wasm (Stack.top stack))
     | Cloop e -> 
         Stack.push Bloop block_stack;
         let result = Tloop (process env e) in
@@ -340,7 +350,7 @@ let rec process env e =
            print_endline "bwith 2";
            pop ();
            result),
-          (if needs_return then !rt else typ_void)
+          mach_to_wasm (if needs_return then !rt else typ_void)
         )           
         in        
         push !rt;
@@ -393,5 +403,5 @@ let add_types func_name fun_args e =
     (if (Stack.length block_stack <> 1) then 
         failwith ("Block stack was expected to have a length of 1, but got " ^ string_of_int (Stack.length block_stack));
     );    
-    functions := !functions @ [(func_name, Stack.top stack, snd (List.split fun_args))];
+    functions := !functions @ [(func_name, mach_to_wasm (Stack.top stack), List.map mach_to_wasm (snd (List.split fun_args)))];
     (result, Stack.top stack, !locals, !functions)
