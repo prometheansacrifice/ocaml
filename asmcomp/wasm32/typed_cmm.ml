@@ -228,9 +228,14 @@ let rec process env e =
        let copied_stack = Stack.copy stack in
        let copied_block_stack = Stack.copy block_stack in
        let args = List.fold_left (fun a e -> 
-          (ignore(process {env with stack = copied_stack; block_stack = copied_block_stack; needs_return = true} e);
-          a @ [mach_to_wasm (Stack.top copied_stack)]
+            (ignore(process {env with stack = copied_stack; block_stack = copied_block_stack; needs_return = true} e);
+            a @ [mach_to_wasm (Stack.top copied_stack)]
         )) [] el in       
+        let el = List.map (fun e -> 
+          match e with 
+          | Ctuple [_a; b] -> Ctuple [b] (* sanderspies: hack to work around int64 tuples for now *)
+          | _ -> e
+        ) el in
         (match o, el with        
         | Cextcall (s, mt, _, _), _ ->
             functions := !functions @ [(s, mach_to_wasm (if mt = typ_float then typ_float else typ_int), args)];
@@ -288,7 +293,7 @@ let rec process env e =
         let else_type = Stack.top stack in
         pop ();
         let (processed_t, processed_e, rt) = 
-          (* sanderspies: hack hack hack :-/ *)
+          (* sanderspies: hack to work around Filename module issue *)
           if not (compare then_type else_type) then (
             if then_type = typ_void then                            
               (processed_t, Tsequence(processed_e, Ttuple []), typ_void)

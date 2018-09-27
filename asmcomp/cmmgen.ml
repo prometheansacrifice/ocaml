@@ -3447,7 +3447,7 @@ let entry_point namelist =
                      Cconst_int 1], dbg)], dbg) in
   let result = 
     if Config.wasm32 then
-      Cconst_symbol "dropme" (* sanderspies: ugly hack *)
+      (Csequence(Cconst_int 1, Ctuple [])) (* sanderspies: hack to work around lld demands for entry point *)
     else 
       (Cconst_int 1)
   in

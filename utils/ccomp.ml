@@ -123,7 +123,6 @@ let macos_create_empty_archive ~quoted_archive =
       command (Printf.sprintf "%s d %s /dev/null" Config.ar quoted_archive)
 
 let create_archive archive file_list =
-  print_endline ("create archive:" ^ archive);
   Misc.remove_file archive;
   let quoted_archive = Filename.quote archive in
   match Config.ccomp_type with
@@ -143,7 +142,6 @@ let create_archive archive file_list =
         let r1 =
           command(Printf.sprintf "%s -o %s %s"
                   "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --relocatable " quoted_archive (quote_files file_list)) in
-        print_endline ("foobar:" ^ Config.ranlib);
         if r1 <> 0 || String.length Config.ranlib = 0
         then r1
         else command(Config.ranlib ^ " " ^ quoted_archive)
