@@ -355,10 +355,13 @@ let encode m =
         let p = pos s in
         let found = ref false in
         List.iteri (fun symbol_index s -> match s.details with
-        | Data { offset } when s.name = symbol  && not !found ->
+        | Data { index; offset } when s.name = symbol  && not !found ->
             found := true;
             code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-            vs32_fixed offset
+            if index = (-1l) then
+              vs32_fixed 0l
+            else 
+              vs32_fixed (Int32.add offset 4l)
         | Import _
         | Function when s.name = symbol && not !found ->
           found := true;
@@ -737,7 +740,7 @@ let encode m =
             u8 4;
             vu32 (Int32.sub offset !code_pos);
             vs32_fixed (Int32.of_int symbol_index); 
-            vs32 0l  
+            vs32 4l  
           | Import _
           | Function when s.name = symbol_ -> 
             exists := true;            
@@ -766,7 +769,7 @@ let encode m =
             u8 3;
             vu32 (Int32.sub offset !code_pos);
             vs32_fixed (Int32.of_int !symbol_index);
-            vs32 0l
+            vs32 4l
           )
         | R_WEBASSEMBLY_TYPE_INDEX_LEB (offset, index) ->
           u8 6;

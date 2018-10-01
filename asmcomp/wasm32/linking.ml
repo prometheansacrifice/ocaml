@@ -107,7 +107,7 @@ let create_symbol_table m fti = (
         handle_expr remaining              
       | DataSymbol symbol :: remaining ->                
         (if not (List.exists (fun s -> s.name = symbol) m.symbols) && 
-            not (List.exists (fun s -> s.name = symbol) !code_symbols) then  (              
+            not (List.exists (fun s -> s.name = symbol) !code_symbols) then  ( 
           code_symbols := !code_symbols @ [{
             name = symbol;
             details = Data ({
