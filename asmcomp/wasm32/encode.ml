@@ -358,8 +358,8 @@ let encode m =
         | Data { index; offset } when s.name = symbol  && not !found ->
             found := true;
             code_relocations := !code_relocations @ [R_WEBASSEMBLY_MEMORY_ADDR_SLEB (Int32.of_int p, symbol)];
-            if index = (-1l) then
-              vs32_fixed 0l
+            if symbol = "caml_globals_inited" || symbol = "caml_backtrace_pos" || index = (-1l) then
+              vs32_fixed offset
             else 
               vs32_fixed (Int32.add offset 4l)
         | Import _
@@ -735,12 +735,16 @@ let encode m =
         | R_WEBASSEMBLY_MEMORY_ADDR_SLEB (offset, symbol_) -> ( 
           let exists = ref false in
           List.iteri (fun symbol_index s -> match s.details with          
-          | Data _  when s.name = symbol_ ->
+          | Data {index}  when s.name = symbol_ ->
             exists := true;
             u8 4;
             vu32 (Int32.sub offset !code_pos);
             vs32_fixed (Int32.of_int symbol_index); 
-            vs32 4l  
+            if symbol_ = "caml_globals_inited" || symbol_ = "caml_backtrace_pos" || index = (-1l) then
+              vs32 0l
+            else 
+              vs32 4l
+            
           | Import _
           | Function when s.name = symbol_ -> 
             exists := true;            

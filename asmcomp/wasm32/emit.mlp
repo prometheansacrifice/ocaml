@@ -198,7 +198,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
   let rec to_operations expression_list operation = 
     let el = List.fold_left (fun a (e, _) -> a @ (emit_expr e)) [] expression_list in
     match operation, expression_list with
-    | Calloc, (Tblockheader (header, _), _) :: rest -> (
+    | Calloc, ((Tblockheader (header, _), _) as hd) :: rest -> (
         let (word_size, _tag) = blockheader_details header in
         let counter = !unique_name_counter in
         unique_name_counter := !unique_name_counter + 1;
@@ -219,7 +219,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
           in
           position := !position + Nativeint.to_int word_size;
           result
-        ) [] rest
+        ) [] ([hd] @ rest)
         in           
         let result = [Const (I32 (Nativeint.to_int32 word_size));
         Call "caml_alloc";
