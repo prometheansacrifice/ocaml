@@ -86,7 +86,7 @@ let blockheader_details header =
   (word_size, tag)
 
 let begin_assembly () = (
-  global_offset := !global_offset + 5; (* TODO: make this a bit smarter (eg. count the previous sizes) *)
+  global_offset := !global_offset + 8; (* TODO: make this a bit smarter (eg. count the previous sizes) *)
   let w = !wasm_module in
   wasm_module := Ast.{w with
     globals = [
@@ -113,7 +113,7 @@ let begin_assembly () = (
         offset = [Const (I32 0l)];
         init = {
           name = "caml_globals_inited";
-          detail = [Int8 0]
+          detail = [Int32 0l]
         };
       }; 
       {
@@ -199,11 +199,12 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
     let el = List.fold_left (fun a (e, _) -> a @ (emit_expr e)) [] expression_list in
     match operation, expression_list with
     | Calloc, ((Tblockheader (header, _), _) as hd) :: rest -> (
-        let (word_size, _tag) = blockheader_details header in
+        let (_word_size, _tag) = blockheader_details header in
         let counter = !unique_name_counter in
         unique_name_counter := !unique_name_counter + 1;
         let local_ = add_local ("allocate_memory_pointer_" ^ string_of_int counter, typ_int) in
         let position = ref 0 in
+        let total_size = ref 0 in
         let calls = List.fold_left (fun calls (f, rt) ->
           let before = calls @
           [GetLocal local_;
@@ -215,20 +216,31 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
           | Tconst_symbol (symbol, Sdata) -> [DataSymbol symbol]
           | _ as e -> emit_expr e
           in
+          let add = match rt with 
+          | [F32Type]
+          | [I32Type] -> 4
+          | _ -> assert false
+          in
+          total_size := !total_size + add;
           let result = before @ middle @ [Store {ty = List.hd(rt); align = 0; offset = 0l; sz = None}]     
           in
-          position := !position + Nativeint.to_int word_size;
+          
+          position := !position + add;
           result
         ) [] ([hd] @ rest)
-        in           
-        let result = [Const (I32 (Nativeint.to_int32 word_size));
+        in  
+        print_endline ("Word size is:" ^ string_of_int !total_size);         
+        let result = [Const (I32 (Int32.of_int !total_size));
         Call "caml_alloc";
         SetLocal local_
         ]
         @
         calls
         @    
-        [GetLocal local_]
+        [GetLocal local_;
+        Const (I32 4l);
+        Binary (I32 I32Op.Add)
+        ]
         in 
         result
       )
@@ -545,7 +557,7 @@ let end_assembly () =
     }];
     memories = Types.[{
       (* TODO: this needs to be improved when doing GC *)
-      mtype = MemoryType {min = 100l; max = Some 100l}
+      mtype = MemoryType {min = 100000l; max = Some 100000l}
     }];
     funcs = [];
     start = None;
