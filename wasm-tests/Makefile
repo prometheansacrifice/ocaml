@@ -11,7 +11,7 @@ build:
 	# ../ocamlopt test/curried_function.ml -o test/curried_function.cmf
 	# ../ocamlopt -dcmm test/curried_function.ml
 	cp ../libasmrun.wasm .
-	../boot/ocamlrun ../ocamlopt test/curried_function.ml -I ../stdlib -o test/curried_function.wasm
+	../boot/ocamlrun ../ocamlopt test/curried_function.ml -dcmm -I ../stdlib -o test/curried_function.wasm
 	# ../../wabt/bin/wasm2wat --no-check test/curried_function.wasm
 	# ../ocamlopt -wasm test/noncurried_function.ml -o test/noncurried_function.wasm
 	../boot/ocamlrun ../ocamlopt test/noncurried_function.ml -I ../stdlib -o test/noncurried_function.wasm

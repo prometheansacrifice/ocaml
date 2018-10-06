@@ -229,7 +229,6 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
           result
         ) [] ([hd] @ rest)
         in  
-        print_endline ("Word size is:" ^ string_of_int !total_size);         
         let result = [Const (I32 (Int32.of_int !total_size));
         Call "caml_alloc";
         SetLocal local_
@@ -634,7 +633,17 @@ let data dl =
         offset := !offset + (String.length s);
         ()
         )
-    | Cskip _ -> ()
+    | Cskip i -> 
+      init := !init @ 
+      (if i = 3 then 
+        [Int8 0; Int8 0; Int8 0]
+      else if i = 2 then  
+        [Int8 0; Int8 0]
+      else if i = 1 then
+        [Int8 0]
+      else 
+        []
+      );
     | Calign _ -> () (* seems not to be produced anyway in the OCaml codebase *)
     ) dl;
 
