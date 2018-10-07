@@ -141,7 +141,7 @@ let create_archive archive file_list =
       else             
         let r1 =
           command(Printf.sprintf "%s -o %s %s"
-                  "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --relocatable " quoted_archive (quote_files file_list)) in
+                  "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm  --allow-undefined --verbose --export-all --relocatable " quoted_archive (quote_files file_list)) in
         if r1 <> 0 || String.length Config.ranlib = 0
         then r1
         else command(Config.ranlib ^ " " ^ quoted_archive)
@@ -190,7 +190,7 @@ let call_linker mode output_name files extra =
       (
         if Config.wasm32 then 
           Printf.sprintf "%s -o %s %s %s %s %s %s %s"
-            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --allow-undefined --gc-sections --export-table"
+            "~/Projects/llvmwasm/llvm-build/bin/lld -flavor wasm --verbose --export-all --allow-undefined --gc-sections --export-table"
             (Filename.quote output_name)
             (if !Clflags.gprofile then Config.cc_profile else "")
             ""  (*(Clflags.std_include_flag "-I")*)

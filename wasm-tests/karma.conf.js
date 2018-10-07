@@ -15,6 +15,14 @@ module.exports = function(config) {
     // browsers: ['Chrome'],
     autoWatch: false,
     singleRun: false, // Karma captures browsers, runs the tests and exits
-    concurrency: Infinity
+    concurrency: Infinity,
+    customLaunchers: {
+      FirefoxWasmGC: {
+        base: "FirefoxNightly",
+        prefs: {
+          "javascript.options.wasm_gc": true
+        }
+      }
+    }
   });
 };

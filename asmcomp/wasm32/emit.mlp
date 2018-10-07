@@ -61,7 +61,7 @@ let wasm_module = ref {
   }];
   memories = Types.[{
     (* TODO: this needs to be improved when doing GC *)
-    mtype = MemoryType {min = 100l; max = Some 100l}
+    mtype = MemoryType {min = 1000l; max = Some 1000l}
   }];
   funcs = [];
   start = None;
@@ -644,6 +644,7 @@ let data dl =
       else 
         []
       );
+      offset := !offset + i
     | Calign _ -> () (* seems not to be produced anyway in the OCaml codebase *)
     ) dl;
 

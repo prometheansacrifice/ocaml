@@ -3809,12 +3809,15 @@ function extract(instance, value) {
     // pointer
     const blockheaderPosition = value - 4;
     var blockheaderBytes = new Uint32Array(
-      instance.exports.memory.buffer,
-      blockheaderPosition,
-      4
+      instance.exports.memory.buffer.slice(
+        blockheaderPosition,
+        blockheaderPosition + 4
+      )
     );
     const tag = blockheaderBytes[0] & 255;
     switch (tag) {
+      case 0:
+        return null;
       case 252:
         const l = (blockheaderBytes[0] >> 10) * 4;
         const stringBytes = new Uint8Array(
@@ -3822,7 +3825,6 @@ function extract(instance, value) {
           value
         );
         let padding = stringBytes[l - 1] + 1;
-        console.log(padding);
         const str = new Uint8Array(
           instance.exports.memory.buffer,
           value,
@@ -3834,6 +3836,8 @@ function extract(instance, value) {
           l: string.length,
           c: string
         };
+      case 253:
+        return new Float32Array(instance.exports.memory.buffer, value, 1)[0];
       case 247:
         const length = blockheaderBytes[0] >> 9;
         console.log("l:", length, value);
@@ -3861,18 +3865,13 @@ function convert(o) {
     var encodedString = te.encode(o);
     var result = blockheader(252, length / 4, 3);
 
-    i32.set([result], pointer / 4);
+    i8.set([result >> 24], pointer + 3);
+    i8.set([result >> 16], pointer + 2);
+    i8.set([result >> 8], pointer + 1);
+    i8.set([result], pointer);
 
     i8.set(encodedString, pointer + 4);
-    if (padding > 0) {
-      i8.set([0], pointer + length + 4 - 1);
-    }
-    if (padding > 1) {
-      i8.set([0], pointer + length + 4 - 2);
-    }
-    if (padding > 2) {
-      i8.set([0], pointer + length + 4 - 3);
-    }
+
     i8.set([padding], pointer + length + 3);
 
     return pointer + 4;
@@ -4521,6 +4520,7 @@ describe("functions", () => {
         .then(instance => {
           const func =
             instance.exports.camlNoncurried_function__noncurried_function_1002;
+          // Object.keys(instance.exports).forEach(e => console.log(e));
           let calculatedValue = func(ocamlInt(5));
           expect(jsInt(calculatedValue)).to.equal(20);
           calculatedValue = func(ocamlInt(100));
@@ -4538,7 +4538,10 @@ describe("functions", () => {
           env.alloc = instance.exports.__heap_base.value;
           env.instance = instance;
 
+          // Object.keys(instance.exports).forEach(e => console.log(e));
+
           instance.exports._start();
+
           expect(
             extract(instance, instance.exports.camlCurried_function__bar_1002())
               .c
@@ -4546,6 +4549,7 @@ describe("functions", () => {
             "Once upon a time there was a 2131232323 #@$!@#@#@ ^&%%^&%^& 1"
           );
 
+          console.log("start...");
           expect(extract(instance, convert("yolo1234")).c).to.equal("yolo1234");
 
           expect(
@@ -4557,14 +4561,28 @@ describe("functions", () => {
             ).c
           ).to.equal("Foobar");
 
-          // let func =
-          //   instance.exports.camlCurried_function__curried_function_1639;
-          // let calculatedValue = func(ocamlInt(6), ocamlInt(20));
-          // expect(jsInt([calculatedValue])).to.equal(49);
+          expect(
+            extract(
+              instance,
+              instance.exports.camlCurried_function__test_1638()
+            )
+          ).to.equal(19);
 
-          // func = instance.exports.camlCurried_function__curried_function_3_1643;
-          // calculatedValue = func(ocamlInt(20));
-          // expect(jsInt(calculatedValue)).to.equal(78);
+          expect(
+            extract(
+              instance,
+              instance.exports.camlCurried_function__float_1641()
+            )
+          ).to.equal(new Float32Array([5.4])[0]);
+
+          let func =
+            instance.exports.camlCurried_function__curried_function_1644;
+          let calculatedValue = func(ocamlInt(6), ocamlInt(20));
+          expect(jsInt([calculatedValue])).to.equal(49);
+
+          func = instance.exports.camlCurried_function__curried_function_3_1648;
+          calculatedValue = func(ocamlInt(20));
+          expect(jsInt(calculatedValue)).to.equal(78);
 
           done();
         })

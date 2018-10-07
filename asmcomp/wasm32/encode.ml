@@ -980,10 +980,14 @@ let encode m =
     let name_section module_ = 
       custom_section "name" name_section_impl module_  true
 
+    let gc_feature_opt_in () = 
+      section 42 (fun () -> u8 1) () true
+
       (* Module *)
     let module_ m =
       u32 0x6d736100l;
       u32 version;
+      gc_feature_opt_in ();
       type_section m.types;
       import_section m.imports;
       func_section m.funcs;
@@ -999,7 +1003,7 @@ let encode m =
       if List.length !code_relocations > 0 then
         relocate_code_section m.funcs;
       if List.length !data_relocations > 0 then
-        relocate_data_section m.funcs;
+        relocate_data_section m.funcs;      
       name_section m
   end
   in E.module_ m; 
