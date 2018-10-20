@@ -24,26 +24,38 @@ type typed_expression =
   | Texit of int * typed_expression list * int
   | Ttrywith of typed_expression * Ident.t * typed_expression
 
-type stack = machtype Stack.t
+type struct_field = {
+  sftype: stack_type;
+  sfmutable_flag: Asttypes.mutable_flag;
+} 
+
+type gc_machtype =
+  | Tstruct of struct_field list
+  | Tanyref
+  | Tmach of Cmm.machtype 
+
+type stack = gc_machtype Stack.t
 
 let print_stack_type e = 
   print_endline ("Stack type:" ^ 
     match e with 
-    | [|Val|] -> "Val"
-    | [|Int|] -> "Int"
-    | [|Addr|] -> "Addr"
-    | [|Float|] -> "Float"
-    | [||] -> "Void"
+    | Tmach [|Val|] -> "Val"
+    | Tmach [|Int|] -> "Int"
+    | Tmach [|Addr|] -> "Addr"
+    | Tmach [|Float|] -> "Float"
+    | Tmach [||] -> "Void"
+    | Tstruct _ -> "Struct"
+    | Tanyref -> "Anyref"
     | _ -> "unknown")
 
 let compare a b = 
   match a, b with 
-  | [|Val|], [|Int|] 
-  | [|Val|], [|Addr|]
-  | [|Int|], [|Val|] 
-  | [|Int|], [|Addr|]
-  | [|Addr|], [|Int|]
-  | [|Addr|], [|Val|] -> true     
+  | Tmach [|Val|], Tmach [|Int|] 
+  | Tmach [|Val|], Tmach [|Addr|]
+  | Tmach [|Int|], Tmach [|Val|] 
+  | Tmach [|Int|], Tmach [|Addr|]
+  | Tmach [|Addr|], Tmach [|Int|]
+  | Tmach [|Addr|], Tmach [|Val|] -> true     
   | _ -> a = b
 
 type block = 
@@ -51,7 +63,7 @@ type block =
   | Bifthenelse
   | Bswitch
   | Bswitch_case
-  | Bwith of int * machtype
+  | Bwith of int * gc_machtype
   | Bcatch
   | Bcheckbound1
   | Bcheckbound2
@@ -59,42 +71,42 @@ type block =
 
 type block_stack = block Stack.t
 
-type local = string * machtype
+type local = string * gc_machtype
 
 type func_result = string * stack_type * (stack_type list)
 
 let functions:func_result list ref = ref []
 
 let mach_to_wasm = function 
-  | [||] -> []   
-  | [|Float|] -> [F32Type]   
-  | [|Val|]
-  | [|Addr|]
-  | [|Int|] -> 
+  | Tmach [||] -> []   
+  | Tmach [|Float|] -> [F32Type]   
+  | Tmach [|Val|]
+  | Tmach [|Addr|]
+  | Tmach [|Int|] -> 
     [I32Type]
   | _ -> assert false
 
 let oper_result_type = function
-  | Capply ty -> ty
-  | Cextcall(_s, ty, _alloc, _) -> ty
+  | Capply ty -> Tmach ty
+  | Cextcall(_s, ty, _alloc, _) -> Tmach ty
   | Cload (c, _) ->
       begin match c with
-      | Word_val -> typ_val
-      | Single | Double | Double_u -> typ_float
-      | _ -> typ_int
+      | Word_val -> Tmach typ_val
+      | Single | Double | Double_u -> Tmach typ_float
+      | _ -> Tmach typ_int
       end
-  | Calloc -> typ_val
-  | Cstore (_c, _) -> typ_void
+  | Calloc -> Tmach typ_val
+  | Cstore (_c, _) -> Tmach typ_void
   | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi |
     Cand | Cor | Cxor | Clsl | Clsr | Casr |
-    Ccmpi _ | Ccmpa _ | Ccmpf _ -> typ_int
-  | Caddv -> typ_val
-  | Cadda -> typ_addr
-  | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> typ_float
-  | Cfloatofint -> typ_float
-  | Cintoffloat -> typ_int
-  | Craise _ -> typ_int
-  | Ccheckbound -> typ_void
+    Ccmpi _ | Ccmpa _ | Ccmpf _ -> Tmach typ_int
+  | Caddv -> Tmach typ_val
+  | Cadda -> Tmach typ_addr
+  | Cnegf | Cabsf | Caddf | Csubf | Cmulf | Cdivf -> Tmach typ_float
+  | Cfloatofint -> Tmach typ_float
+  | Cintoffloat -> Tmach typ_int
+  | Craise _ -> Tmach typ_int
+  | Ccheckbound -> Tmach typ_void
 
 type env = {
     stack: stack;
@@ -174,27 +186,27 @@ let rec process env e =
   in     
   match e with 
     | Cconst_int i -> 
-        push typ_int;
+        push (Tmach typ_int);
         Tconst_int i
     | Cconst_natint i -> 
-        push typ_int;
+        push (Tmach typ_int);
         Tconst_natint i
     | Cconst_float f ->
-        push typ_float;
+        push (Tmach typ_float);
         Tconst_float f
     | Cconst_symbol "dropme" ->
-        push typ_void;
+        push (Tmach typ_void);
         Tconst_symbol ("dropme", Sdata)
     | Cconst_symbol s -> 
         let func = get_func s in
         let (t, k) = match func with 
-        | Some _ -> (typ_int, Sfunction)
-        | None -> (typ_int, Sdata)
+        | Some _ -> (Tmach typ_int, Sfunction)
+        | None -> (Tmach typ_int, Sdata)
         in
         push t;
         Tconst_symbol (s, k)
     | Cblockheader (n, d) -> 
-        push typ_int;
+        push (Tmach typ_int);
         Tblockheader (n, d)
     | Cvar i ->
         let (pos, (_, t)) = get_local i in        
@@ -211,11 +223,11 @@ let rec process env e =
         let (pos, _) = get_local i in  
         let result = Tassign (i, process {env with needs_return = false} e, Int32.of_int pos) in
         pop ();
-        push typ_void;
+        push (Tmach typ_void);
         add_local (ident i, Stack.top stack);
         result
     | Ctuple [] -> 
-        push typ_void;
+        push (Tmach typ_void);
         Ttuple []
     | Ctuple el ->      
         let result = Ttuple (List.mapi (fun i e -> 
@@ -238,9 +250,9 @@ let rec process env e =
         ) el in
         (match o, el with        
         | Cextcall (s, mt, _, _), _ ->
-            functions := !functions @ [(s, mach_to_wasm (if mt = typ_float then typ_float else typ_int), args)];
+            functions := !functions @ [(s, mach_to_wasm (if mt = typ_float then (Tmach typ_float) else (Tmach typ_int)), args)];
         | Capply mt, (Cconst_symbol s) :: _ -> 
-            functions := !functions @ [(s, mach_to_wasm mt, List.tl args)];
+            functions := !functions @ [(s, mach_to_wasm (Tmach mt), List.tl args)];
         | Calloc, Cblockheader (header, _) :: rest ->                        
             let (_, tag) = blockheader_details header in
             let is_closure = ((Nativeint.to_int tag) land 255) == 247 in
@@ -248,7 +260,7 @@ let rec process env e =
               List.iter (fun i ->   
                 match i with                 
                 | Cconst_symbol s ->
-                    functions := !functions @ [(s, mach_to_wasm typ_int, [])]
+                    functions := !functions @ [(s, mach_to_wasm (Tmach typ_int), [])]
                 | _ -> ()
               ) rest                
             )
@@ -268,7 +280,7 @@ let rec process env e =
         let processed_f = process {env with needs_return = true} f in
         pop ();
         check_stack_equal ();
-        push typ_void;
+        push (Tmach typ_void);
         Tsequence (processed_f, Ttuple [])
     | Csequence (Clet _ as f, s) ->
         let processed_f = process {env with needs_return = false} f in    
@@ -295,17 +307,17 @@ let rec process env e =
         let (processed_t, processed_e, rt) = 
           (* sanderspies: hack to work around Filename module issue *)
           if not (compare then_type else_type) then (
-            if then_type = typ_void then                            
-              (processed_t, Tsequence(processed_e, Ttuple []), typ_void)
-            else if else_type = typ_void then
-              (Tsequence(processed_t, Ttuple []), processed_e, typ_void)
+            if then_type = (Tmach typ_void) then                            
+              (processed_t, Tsequence(processed_e, Ttuple []), Tmach typ_void)
+            else if else_type = (Tmach typ_void) then
+              (Tsequence(processed_t, Ttuple []), processed_e, Tmach typ_void)
             else 
               failwith "Then and else need to return the same type"
           ) else (
             (processed_t, processed_e, then_type)
         )
         in
-        let result = Tifthenelse (processed_i, processed_t, processed_e, mach_to_wasm (if needs_return then rt else typ_void)) in
+        let result = Tifthenelse (processed_i, processed_t, processed_e, mach_to_wasm (if needs_return then rt else (Tmach typ_void))) in
         push rt;
         ignore(Stack.pop block_stack);
         check_stack_plus_one ();
@@ -314,7 +326,7 @@ let rec process env e =
         let match_ = process {env with needs_return = true} e in
         pop ();
         let cases = Array.map (process env) ea in
-        let switch_result = ref typ_void in
+        let switch_result = ref (Tmach typ_void) in
         Array.iter (fun _ ->
             Stack.push Bswitch_case block_stack;
             let item = Stack.pop stack in 
@@ -330,10 +342,10 @@ let rec process env e =
         ignore(Stack.pop block_stack);
         result
     | Ccatch (r, with_, body_) ->              
-        let rt = ref typ_void in
+        let rt = ref (Tmach typ_void) in
         let with_exprs = List.map(fun (i, il, expr) -> (
           List.iter (fun i -> (            
-            add_local (ident i, typ_int)
+            add_local (ident i, Tmach typ_int)
           )) il; 
           let result = (i, il, process env expr) in
           print_endline "bwith 1";
@@ -356,7 +368,7 @@ let rec process env e =
            print_endline "bwith 2";
            pop ();
            result),
-          mach_to_wasm (if needs_return then !rt else typ_void)
+          mach_to_wasm (if needs_return then !rt else (Tmach typ_void))
         )           
         in        
         push !rt;
@@ -411,3 +423,11 @@ let add_types func_name fun_args e =
     );    
     functions := !functions @ [(func_name, mach_to_wasm (Stack.top stack), List.map mach_to_wasm (snd (List.split fun_args)))];
     (result, Stack.top stack, !locals, !functions)
+
+    (*
+        - Cadda -> struct.get
+        - Cload + Cload_mut -> remove? 
+        - resolve Cmmgen.string_length in a different way...
+        - resolve null pointer checks
+        - get size...
+    *)

@@ -187,6 +187,7 @@ let begin_assembly () = (
 
 let fundecl ({fun_name; fun_args; fun_body; _}) =
   Stack.clear block_stack;
+  let fun_args = List.map (fun (i, f) -> (i, Tmach f)) fun_args in
   let (typed_cmm, rt, locals, fns) = Typed_cmm.add_types fun_name fun_args fun_body in
   let args = List.fold_left (fun a b -> a @ (Typed_cmm.mach_to_wasm (snd b))) [] fun_args in
   functions := fns;
@@ -202,7 +203,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
         let (_word_size, _tag) = blockheader_details header in
         let counter = !unique_name_counter in
         unique_name_counter := !unique_name_counter + 1;
-        let local_ = add_local ("allocate_memory_pointer_" ^ string_of_int counter, typ_int) in
+        let local_ = add_local ("allocate_memory_pointer_" ^ string_of_int counter, Tmach typ_int) in
         let position = ref 0 in
         let total_size = ref 0 in
         let calls = List.fold_left (fun calls (f, rt) ->
@@ -246,8 +247,8 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
     | Cmodi, [(fst, _); (snd, _)] ->
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
-      let cmod_local = add_local ("cmod_" ^ string_of_int counter, typ_int) in
-      let cmod_local2 = add_local ("cmod2_" ^ string_of_int counter, typ_int) in
+      let cmod_local = add_local ("cmod_" ^ string_of_int counter, Tmach typ_int) in
+      let cmod_local2 = add_local ("cmod2_" ^ string_of_int counter, Tmach typ_int) in
       let result = (emit_expr fst) @
       [SetLocal cmod_local;
         GetLocal cmod_local;
@@ -530,7 +531,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
       name = fun_name;
       ftype = fun_name;
       locals = List.map (fun (name, t) -> 
-        (name, List.hd (mach_to_wasm (if t = typ_void then typ_int else t)))
+        (name, List.hd (mach_to_wasm (if t = (Tmach typ_void) then (Tmach typ_int) else t)))
       ) !locals;
       body;
       no_of_args = List.length fun_args
