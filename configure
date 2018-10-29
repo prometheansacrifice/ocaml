@@ -2080,15 +2080,9 @@ config MKSHAREDLIBRPATH "$mksharedlibrpath"
 config NATDYNLINKOPTS "$natdynlinkopts"
 cat >> Makefile <<EOF
 SYSLIB=-l\$(1)
-#ml let syslib x = "-l"^x;;
 
 ### How to build a static library
-# MKLIB=rm -f \$(1) && ${TOOLPREF}ar rc \$(1) \$(2) && ${TOOLPREF}ranlib \$(1)
-MKLIB=rm -f \$(1) && emar rc \$(1) \$(2); emranlib \$(1) \$(1)
-
-#ml let mklib out files opts =      (* "" *)
-#ml   Printf.sprintf "${TOOLPREF}ar rc %s %s %s && ${TOOLPREF}ranlib %s"
-#ml                  out opts files out;;
+MKLIB=rm -f \$(1) && ${TOOLPREF}ar rc \$(1) \$(2) && ${TOOLPREF}ranlib \$(1)
 EOF
 config ARCH "$arch"
 config MODEL "$model"
