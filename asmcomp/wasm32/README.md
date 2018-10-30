@@ -8,17 +8,21 @@ cmm -> typed cmm -> wasm ast -> linking -> binary
 Typed CMM
 ---
 
-In normal OCaml compilation, after typechecking has been completed the types are removed,
-and thus the cmm representation does not include types.
-However, for WASM, adding some types back at this stage is helpful to cleanly generate the WebAssembly,
-because CMM is closer to WASM than it is to the typed AST.
-WebAssembly types and helper functions are defined in [typed_cmm.ml](typed_cmm.ml).
+In normal OCaml compilation, after typechecking has been completed most types are removed.
+However, for WASM, including some additional type information at this stage is helpful
+to generate the types required by WebAssembly.
+Type enhancements to the CMM provided by OCaml are defined in [typed_cmm.ml](typed_cmm.ml).
+`Typed_cmm` is used in [emit.mlp](emit.mlp) to translate that CMM to the WebAssembly AST,
+which then gets transformed in actual binary code in [encode.ml](encode.ml).
 
 Linking
 ---
 
-We currently depend on a fork of LLVM for linking with other WASM code.
+We currently depend on LLVM for linking with other WASM code.
 This is desirable for interoperability with code written in other languages.
+
+*NOTE:* The `wasm-backend` branch currently depends on a fork of LLVM to support garbage collection.
+The intention is to eventually upstream these changes into LLVM.
 
 Contributing
 ---
@@ -33,7 +37,7 @@ Modules
 ---
 
 The entry-point for WASM compilation is [asmcomp/asmgen.mlp-wasm](../asmgen.mlp-wasm).
-The main points of interest in the pipline are:
+The main points of interest in the pipeline are:
 
 [Typed_cmm](Typed_cmm.ml): Adds types to the CMM representation.
 
