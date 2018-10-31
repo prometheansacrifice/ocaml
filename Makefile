@@ -392,6 +392,8 @@ utils/config.ml: utils/config.mlp config/Makefile Makefile
 	    $(call SUBST,ENABLE_CALL_COUNTS) \
 	    $(call SUBST,FLAT_FLOAT_ARRAY) \
 		$(call SUBST,WASM32) \
+		$(call SUBST,WASM_LINKER) \
+		$(call SUBST,WASM_LINKER_RELOCATABLE) \
 	    $< > $@
 
 ifeq "$(UNIX_OR_WIN32)" "unix"
@@ -1491,7 +1493,7 @@ wasm32-all:
 	make wasm32
 
 wasm32-test:
-	boot/ocamlrun ./ocamlopt -o test -dcmm test.ml -I stdlib -dstartup
+	boot/ocamlrun ./ocamlopt -o test test.ml -I stdlib -dstartup
 	
 
 wasm32:
