@@ -185,3 +185,7 @@ val afl_instrument : bool
 
 val wasm32 : bool
         (* Whether wasm32 output should be generated *)
+
+val wasm32_linker : string
+
+val wasm32_linker_relocatable : string

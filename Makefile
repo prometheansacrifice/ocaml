@@ -392,6 +392,8 @@ utils/config.ml: utils/config.mlp config/Makefile Makefile
 	    $(call SUBST,ENABLE_CALL_COUNTS) \
 	    $(call SUBST,FLAT_FLOAT_ARRAY) \
 		$(call SUBST,WASM32) \
+		$(call SUBST,WASM_LINKER) \
+		$(call SUBST,WASM_LINKER_RELOCATABLE) \
 	    $< > $@
 
 ifeq "$(UNIX_OR_WIN32)" "unix"
