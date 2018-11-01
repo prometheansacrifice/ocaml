@@ -1505,7 +1505,6 @@ wasm32:
 	make opt-core
 	make libasmrun-wasm
 	make wasm32-test
-	../wabt/bin/wasm2wat test --inline-exports --inline-imports | pbcopy
 
 include .depend
 
