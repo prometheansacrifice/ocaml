@@ -5,7 +5,7 @@ REPO_DIR=$PWD
 git clone https://github.com/sanderspies/llvm llvmwasm
 ls
 mkdir -p llvmwasm/llvm/tools
-cd ./llvmwasm/llvm/tools
+cd llvmwasm/llvm/tools
 git clone https://github.com/sanderspies/lld 
 cd ../../
 
