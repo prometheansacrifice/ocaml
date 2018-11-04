@@ -29,10 +29,4 @@ else
   $cmd 2> /dev/null || exit 100
 fi
 
-if test "$EMSCRIPTEN"; then
-  exec node ./tst.js
-else
-  exec ./tst
-fi
-
-
+exec ./tst.js

@@ -1494,6 +1494,7 @@ wasm32-all:
 
 wasm32-test:
 	boot/ocamlrun ./ocamlopt -o test -dcmm test.ml -I stdlib -dstartup
+	$(MAKE) -C wasm-tests full
 	
 
 wasm32:
