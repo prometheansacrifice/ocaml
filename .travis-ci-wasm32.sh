@@ -3,7 +3,8 @@
 REPO_DIR=$PWD
 
 git clone https://github.com/sanderspies/llvm llvmwasm
-cd llvmwasm/llvm/tools
+ls
+cd ./llvmwasm/llvm/tools
 git clone https://github.com/sanderspies/lld 
 cd ../../
 
