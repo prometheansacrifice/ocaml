@@ -14,7 +14,7 @@ cd $REPO_DIR
 
 mkdir llvm-build
 cd llvm-build
-cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$INSTALLDIR -DLLVM_TARGETS_TO_BUILD= -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly ../llvm 
+cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$INSTALLDIR -DLLVM_TARGETS_TO_BUILD= -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly $REPO_DIR/llvmwasm/llvm
 make -j 6
 cd $REPO_DIR
 
