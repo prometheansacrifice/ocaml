@@ -16,8 +16,19 @@
 sudo: required 
 dist: precise
 
+addons:
+  apt:
+    sources:
+      - george-edison55-precise-backports
+    packages:
+      - cmake-data
+      - cmake
+
+      
 language: c
 git:
   submodules: false
 
+  
 script: bash -ex .travis-ci-wasm32.sh
+
