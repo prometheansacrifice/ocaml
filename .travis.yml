@@ -14,17 +14,7 @@
 #**************************************************************************
 
 sudo: required 
-dist: precise
 
-addons:
-  apt:
-    sources:
-      - george-edison55-precise-backports
-    packages:
-      - cmake-data
-      - cmake
-
-      
 language: c
 git:
   submodules: false
