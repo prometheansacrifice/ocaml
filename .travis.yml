@@ -13,8 +13,11 @@
 #*                                                                        *
 #**************************************************************************
 
-sudo: false
+sudo: required 
+dist: precise
+
 language: c
 git:
   submodules: false
+
 script: bash -ex .travis-ci-wasm32.sh
