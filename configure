@@ -1489,21 +1489,22 @@ if sh ./hasgot -i locale.h && sh ./hasgot setlocale; then
   echo "#define HAS_LOCALE" >> s.h
 fi
 
-if $wasm32; then
-  inf "ignore dlopen"
-  mathlib=""
+
+if sh ./hasgot $dllib dlopen; then
+  inf "dlopen() found."
+elif sh ./hasgot $dllib -ldl dlopen; then
+  inf "dlopen() found in -ldl."
+  dllib="$dllib -ldl"
 else
-  if sh ./hasgot $dllib dlopen; then
-    inf "dlopen() found."
-  elif sh ./hasgot $dllib -ldl dlopen; then
-    inf "dlopen() found in -ldl."
-    dllib="$dllib -ldl"
-  else
-    case "$target" in
-      *-*-mingw*) ;;
-      *) shared_libraries_supported=false
-    esac
-  fi
+  case "$target" in
+    *-*-mingw*) ;;
+    *) shared_libraries_supported=false
+  esac
+fi
+
+if $wasm32; then
+  shared_libraries_supported=false
+  dllib=""
 fi
 
 if $shared_libraries_supported; then

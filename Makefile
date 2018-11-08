@@ -1503,9 +1503,9 @@ wasm32:
 	rm -f asmcomp/encode.cmo
 	rm -f asmcomp/asmgen.cmo	
 	make opt-core
-	make libasmrun-wasm
+	# make libasmrun-wasm
 	make wasm32-test
-	../wabt/bin/wasm2wat test --inline-exports --inline-imports
+	# ../wabt/bin/wasm2wat test --inline-exports --inline-imports
 
 include .depend
 

@@ -139,12 +139,13 @@ let create_archive archive file_list =
       if is_macosx && file_list = [] then  (* PR#6550 *)
         macos_create_empty_archive ~quoted_archive
       else             
+        (print_endline "a2";
         let r1 =
           command(Printf.sprintf "%s -o %s %s"
                   Config.wasm32_linker_relocatable quoted_archive (quote_files file_list)) in
         if r1 <> 0 || String.length Config.ranlib = 0
         then r1
-        else command(Config.ranlib ^ " " ^ quoted_archive)
+        else command(Config.ranlib ^ " " ^ quoted_archive))
 
 let expand_libname name =
   if String.length name < 2 || String.sub name 0 2 <> "-l"
@@ -189,15 +190,16 @@ let call_linker mode output_name files extra =
     else
       (
         if Config.wasm32 then 
+          (print_endline "a1";
           Printf.sprintf "%s -o %s %s %s %s %s %s %s"
             Config.wasm32_linker
             (Filename.quote output_name)
             (if !Clflags.gprofile then Config.cc_profile else "")
             ""  (*(Clflags.std_include_flag "-I")*)
             (quote_prefixed "-L" !Config.load_path)
-            (String.concat " " (List.rev !Clflags.all_ccopts))
+            "" (* (String.concat " " (List.rev !Clflags.all_ccopts)) *)
             (quote_files files)
-            extra                
+            "" (* extra  *))
         else
           Printf.sprintf "%s -o %s %s %s %s %s %s %s"
             (match !Clflags.c_compiler, mode with
