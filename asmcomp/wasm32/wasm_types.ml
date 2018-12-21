@@ -1,6 +1,8 @@
 (* Types *)
 
-type value_type = I32Type | I64Type | F32Type | F64Type
+type num_type = I32Type | I64Type | F32Type | F64Type
+type ref_type = Anyref
+type value_type = NumType of num_type | RefType of ref_type
 type elem_type = AnyFuncType
 type stack_type = value_type list
 type func_type = FuncType of stack_type * stack_type
