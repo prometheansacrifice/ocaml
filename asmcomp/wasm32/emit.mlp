@@ -92,20 +92,20 @@ let begin_assembly () = (
     globals = [
       {
         name = "global_offset";
-        gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
+        gtype = Types.GlobalType (Types.NumType Types.I32Type, Types.Mutable);
         value = [Const (I32 (I32.of_int_s !global_offset))]
       };
       {
         name = "global_memory_offset";
-        gtype = Types.GlobalType (Types.I32Type, Types.Mutable);
+        gtype = Types.GlobalType (Types.NumType Types.I32Type, Types.Mutable);
         value = [Const (I32 (I32.of_int_s 0))]
       }
     ];
     types = [
-      {tname = "jsTryWithType"; tdetails = Types.FuncType ([Types.I32Type;Types.I32Type;Types.I32Type], [])};
-      {tname = "type_"; tdetails = Types.FuncType ([Types.I32Type], [Types.I32Type])};
+      {tname = "jsTryWithType"; tdetails = Types.FuncType ([Types.NumType Types.I32Type;Types.NumType Types.I32Type;Types.NumType Types.I32Type], [])};
+      {tname = "type_"; tdetails = Types.FuncType ([Types.NumType Types.I32Type], [Types.NumType Types.I32Type])};
       {tname = "empty_type"; tdetails = Types.FuncType ([], [])};
-      {tname = "raise_i32_ftype"; tdetails = Types.FuncType ([Types.I32Type], [])}
+      {tname = "raise_i32_ftype"; tdetails = Types.FuncType ([Types.NumType Types.I32Type], [])}
     ];
     data =  [
       {
@@ -217,12 +217,14 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
           | _ as e -> emit_expr e
           in
           let add = match rt with 
-          | [F32Type]
-          | [I32Type] -> 4
+          | [NumType F32Type]
+          | [NumType I32Type] -> 4
           | _ -> assert false
           in
           total_size := !total_size + add;
-          let result = before @ middle @ [Store {ty = List.hd(rt); align = 0; offset = 0l; sz = None}]     
+          let result = match rt with
+            | NumType x::_ -> before @ middle @ [Store {ty = x; align = 0; offset = 0l; sz = None}]
+            | _ -> assert false
           in
           
           position := !position + add;
@@ -352,7 +354,9 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
     )
   and emit_expr expression =
     match expression with
-    | Tconst_int i -> [Const (I32 (I32.of_int_s i))]
+    | Tconst_int i -> [
+        Const (I32 (I32.of_int_s i))
+      ]
     | Tconst_natint i -> [Const (I32 (I32.of_int_s (Nativeint.to_int i)))]
     | Tconst_float f -> [Const (F32 (F32.of_float f))]  
     | Tconst_symbol (symbol, Sfunction) -> [Call symbol]
@@ -395,7 +399,7 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
       let counter = !unique_name_counter in
       unique_name_counter := !unique_name_counter + 1;
       let name_ = "wasm_unique_name_" ^ string_of_int counter in
-      let type_:Ast.type_ = {tname = name_; tdetails = FuncType (!fn_args, [I32Type])} in    
+      let type_:Ast.type_ = {tname = name_; tdetails = FuncType (!fn_args, [NumType I32Type])} in    
       let w = !wasm_module in
       let drop = 
         if Array.length mt = 0 then 
