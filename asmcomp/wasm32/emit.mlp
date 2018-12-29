@@ -104,6 +104,9 @@ let begin_assembly () = (
     types = [
       {tname = "jsTryWithType"; tdetails = Types.FuncType ([Types.NumType Types.I32Type;Types.NumType Types.I32Type;Types.NumType Types.I32Type], [])};
       {tname = "type_"; tdetails = Types.FuncType ([Types.NumType Types.I32Type], [Types.NumType Types.I32Type])};
+      {tname = "type_js_int_new"; tdetails = Types.FuncType ([Types.NumType Types.I32Type], [Types.RefType Types.AnyRefType])};
+      {tname = "type_js_int_get"; tdetails = Types.FuncType ([Types.RefType Types.AnyRefType], [Types.NumType Types.I32Type])};
+      {tname = "type_js_int_set"; tdetails = Types.FuncType ([Types.RefType Types.AnyRefType; Types.NumType Types.I32Type], [Types.NumType Types.I32Type])};
       {tname = "empty_type"; tdetails = Types.FuncType ([], [])};
       {tname = "raise_i32_ftype"; tdetails = Types.FuncType ([Types.NumType Types.I32Type], [])}
     ];
@@ -145,6 +148,21 @@ let begin_assembly () = (
         module_name = name "js";
         item_name = name "caml_fresh_oo_id";
         idesc = FuncImport "type_"
+      };
+      {
+        module_name = name "js";
+        item_name = name "js_int_new";
+        idesc = FuncImport "type_js_int_new"
+      };
+      {
+        module_name = name "js";
+        item_name = name "js_int_get";
+        idesc = FuncImport "type_js_int_get"
+      };
+      {
+        module_name = name "js";
+        item_name = name "js_int_set";
+        idesc = FuncImport "type_js_int_set"
       };
       {
         module_name = name "libasmrun";
@@ -248,26 +266,30 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
     | _ -> 
       el @ (match operation with 
       | Cextcall (symbol, mt, _, _) -> [Call symbol] @ (if mt = typ_void then [Drop] else [])
-      | Cload(Byte_unsigned, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = Some (Mem8, ZX)}]
-      | Cload(Byte_signed, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = Some (Mem8, SX)}]
-      | Cload(Sixteen_unsigned, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = Some (Mem16, ZX)}]
-      | Cload(Sixteen_signed, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = Some (Mem16, SX)}]
-      | Cload(Thirtytwo_unsigned, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cload(Thirtytwo_signed, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cload(Word_int, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cload(Word_val, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cload(Single, _) -> [Load {ty = I32Type; align = 0; offset = 0l; sz = None}]
+      | Cload(Byte_unsigned, _)
+      | Cload(Byte_signed, _)
+      | Cload(Sixteen_unsigned, _)
+      | Cload(Sixteen_signed, _)
+      | Cload(Thirtytwo_unsigned, _)
+      | Cload(Thirtytwo_signed, _)
+      | Cload(Word_int, _)
+      | Cload(Word_val, _)
+      | Cload(Single, _) -> [
+          Call "js_int_get" (* anyref -> int. Expects anyref in the stack *)
+        ]
       | Cload(Double, _) -> [Load {ty = F32Type; align = 0; offset = 0l; sz = None}]
       | Cload(Double_u, _) -> [Load {ty = F32Type; align = 0; offset = 0l; sz = None}]
-      | Cstore (Byte_unsigned, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = Some Mem8}]
-      | Cstore (Byte_signed, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = Some Mem8}]
-      | Cstore (Sixteen_unsigned, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = Some Mem16}]
-      | Cstore (Sixteen_signed, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = Some Mem16}]
-      | Cstore (Thirtytwo_unsigned, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cstore (Thirtytwo_signed, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cstore (Word_int, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cstore (Word_val, _) -> [Store {ty = I32Type; align = 0; offset = 0l; sz = None}]
-      | Cstore (Single, _) -> [Store {ty = F32Type; align = 0; offset = 0l; sz = None}]
+      | Cstore (Byte_unsigned, _)
+      | Cstore (Byte_signed, _)
+      | Cstore (Sixteen_unsigned, _)
+      | Cstore (Sixteen_signed, _)
+      | Cstore (Thirtytwo_unsigned, _)
+      | Cstore (Thirtytwo_signed, _)
+      | Cstore (Word_int, _)
+      | Cstore (Word_val, _)
+      | Cstore (Single, _) -> [
+          Call "js_int_set" (* anyref -> int -> unit. Expects anyref in the stack *)
+        ]
       | Cstore (Double, _) -> [Store {ty = F32Type; align = 0; offset = 0l; sz = None}]
       | Cstore (Double_u, _) -> [Store {ty = F32Type; align = 0; offset = 0l; sz = None}]
       | Caddv 

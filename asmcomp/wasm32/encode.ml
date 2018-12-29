@@ -135,7 +135,7 @@ let encode m =
       | F64Type -> vs7 (-0x04)
 
     let ref_type = function
-      | AnyRefType -> vs7 (-0x10)
+      | AnyRefType -> vs7 (-0x11)
 
     let value_type = function
       | NumType n -> num_type n
@@ -563,6 +563,12 @@ let encode m =
     let type_section ts =
       section 1 (vec type_) ts (ts <> [])
 
+    let encode_gc_version () =
+      u8 2
+
+    let sm_gc_optin () =
+      u8 42;
+      section 42 encode_gc_version () true
     
     (* Import section *)
     let import_desc d =
@@ -991,6 +997,7 @@ let encode m =
     let module_ m =
       u32 0x6d736100l;
       u32 version;
+      sm_gc_optin ();
       type_section m.types;
       import_section m.imports;
       func_section m.funcs;
