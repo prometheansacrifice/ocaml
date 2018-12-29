@@ -71,7 +71,7 @@ let mach_to_wasm = function
   | [|Val|]
   | [|Addr|]
   | [|Int|] -> 
-    [NumType I32Type]
+      [RefType AnyRefType]
   | _ -> assert false
 
 let oper_result_type = function
