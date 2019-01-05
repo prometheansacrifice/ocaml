@@ -567,7 +567,6 @@ let encode m =
       u8 2
 
     let sm_gc_optin () =
-      u8 42;
       section 42 encode_gc_version () true
     
     (* Import section *)
