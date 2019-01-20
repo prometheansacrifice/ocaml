@@ -216,16 +216,14 @@ let fundecl ({fun_name; fun_args; fun_body; _}) =
   let rec to_operations expression_list operation = 
     let el = List.fold_left (fun a (e, _) -> a @ (emit_expr e)) [] expression_list in
     match operation, expression_list with
-    | Calloc, ((Tblockheader (_header, _), _) as hd) :: rest -> (
+    | Calloc, expression_list -> (
         let top_to_wasm_instructions (typed_exp, _stack_typ) =
-          let eval_opcodes = match typed_exp with        
+          match typed_exp with        
           | Tconst_symbol (symbol, Sfunction) -> [FuncSymbol symbol]
           | Tconst_symbol (symbol, Sdata) -> [DataSymbol symbol]
           | _ as e -> emit_expr e
-          in
-          eval_opcodes @ [ Call "js_int_new" ]
         in
-        List.flatten (List.map top_to_wasm_instructions (hd::rest)) 
+        List.flatten (List.map top_to_wasm_instructions expression_list) @ [ Call "js_int_new" ]
       )
     | Cmodi, [(fst, _); (snd, _)] ->
       let counter = !unique_name_counter in
