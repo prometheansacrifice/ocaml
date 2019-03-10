@@ -75,7 +75,6 @@ let compile_fundecl (ppf : formatter) fd_cmm =
 
 let compile_phrase ppf p =
   if !dump_cmm then fprintf ppf "%a@." Printcmm.phrase p;
-  if !dump_wasmtree then print_endline "wasm tee";
   match p with
   | Cfunction fd -> compile_fundecl ppf fd
   | Cdata dl -> Emit.data dl
