@@ -41,16 +41,16 @@ let print_wasm_tree m =
     in
     func_type ts
   in
-  let dump_imports ims =
-    let find_type x =
-      let rec iter result = function
-        | ({tname} : Ast.type_) :: remaining when tname = x -> result
-        | ({tname} : Ast.type_) :: remaining ->
-            iter (Int32.add result 1l) remaining
-        | [] -> result
-      in
-      iter 0l m.types
+  let find_type x =
+    let rec iter result = function
+      | ({tname} : Ast.type_) :: remaining when tname = x -> result
+      | ({tname} : Ast.type_) :: remaining ->
+         iter (Int32.add result 1l) remaining
+      | [] -> result
     in
+    iter 0l m.types
+  in
+  let dump_imports ims =
     let dump_import im =
       let limits {min; max} = match max with
         | None -> spf "%ld" min
@@ -78,11 +78,15 @@ let print_wasm_tree m =
     in
     dump_import ims
   in
+  let dump_func f = 
+    spf "(func (type %ld))" (find_type f.ftype)
+  in
   let modulefields =
     let func_type_of_tdetails x = dump_types x.tdetails in
     let type_of_func_type i x = spf "(type $%d %s)" i x in
     List.mapi (fun i -> func_type_of_tdetails |> type_of_func_type i) m.types
     @ List.map dump_imports m.imports
+    @ List.map dump_func m.funcs
   in
   let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   (* Version comment *)
