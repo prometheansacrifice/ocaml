@@ -12,7 +12,7 @@ open Types
 
 (* Encoding stream *)
 
-let (|>) f g = (fun x -> g (f x))
+let ( |> ) f g x = g (f x)
 
 let print_wasm_tree m =
   let spf = sprintf in
@@ -45,23 +45,23 @@ let print_wasm_tree m =
     let rec iter result = function
       | ({tname} : Ast.type_) :: remaining when tname = x -> result
       | ({tname} : Ast.type_) :: remaining ->
-         iter (Int32.add result 1l) remaining
+          iter (Int32.add result 1l) remaining
       | [] -> result
     in
     iter 0l m.types
   in
-  let limits {min; max} = match max with
-    | None -> spf "%ld" min
-    | Some x -> spf "%ld %ld" min x
+  let limits {min; max} =
+    match max with None -> spf "%ld" min | Some x -> spf "%ld %ld" min x
   in
   let table_type = function
     | TableType (lim, t) -> spf "%s %s" (limits lim) (elem_type t)
   in
   let memory_type = function MemoryType lim -> limits lim in
   let global_type = function
-    | GlobalType (t, mut) -> match mut with
-                             | Immutable -> value_type t
-                             | Mutable -> spf "(mut %s)" (value_type t)
+    | GlobalType (t, mut) -> (
+      match mut with
+      | Immutable -> value_type t
+      | Mutable -> spf "(mut %s)" (value_type t) )
   in
   let stringify x = spf "\"%s\"" x in
   let dump_imports ims =
@@ -73,13 +73,14 @@ let print_wasm_tree m =
         | GlobalImport t -> global_type t
       in
       let {module_name; item_name; idesc} = im in
-      spf "(import %s %s %s)" (stringify (Utf8.encode module_name)) (stringify (Utf8.encode item_name)) (dump_import_description idesc)
+      spf "(import %s %s %s)"
+        (stringify (Utf8.encode module_name))
+        (stringify (Utf8.encode item_name))
+        (dump_import_description idesc)
     in
     dump_import ims
   in
-  let dump_func f = 
-    spf "(func (type %ld))" (find_type f.ftype)
-  in
+  let dump_func f = spf "(func (type %ld))" (find_type f.ftype) in
   let dump_table t =
     let {ttype} = t in
     spf "(table %s)" (table_type ttype)
@@ -95,9 +96,8 @@ let print_wasm_tree m =
   let func_index symbol =
     let rec find_import imports count =
       match imports with
-      | {item_name} :: remaining when Ast.string_of_name item_name = symbol
-        ->
-         count
+      | {item_name} :: remaining when Ast.string_of_name item_name = symbol ->
+          count
       | _ :: remaining -> find_import remaining (Int32.add count 1l)
       | [] -> -1l
     in
@@ -114,17 +114,29 @@ let print_wasm_tree m =
   in
   let dump_export e =
     let export_description = function
-      | FuncExport symbol ->
-          spf "(func %ld)" (func_index symbol)
+      | FuncExport symbol -> spf "(func %ld)" (func_index symbol)
       | TableExport x -> spf "(table %ld)" x
       | MemoryExport x -> spf "(memory %ld)" x
       | GlobalExport x -> spf "(global %ld)" x
     in
     let {name; edesc} = e in
-    spf "(export %s %s)" (stringify (Utf8.encode name)) (export_description edesc)
+    spf "(export %s %s)"
+      (stringify (Utf8.encode name))
+      (export_description edesc)
   in
-  let dump_start s =
-    spf "(start %ld)" s
+  let dump_start s = spf "(start %ld)" s in
+  let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
+  let instr _i = "(instr)" in
+  let const c = List.map instr c in
+  let dump_table_segment seg =
+    let {index; offset; init} = seg in
+    sexp
+      (spf "elem %ld (offset %s)" index
+         (String.concat "\n"
+            (List.map
+               (fun s -> spf "            %s" s)
+               (prepend_empty_string (const offset)))))
+      (List.map (spf "%ld") init)
   in
   let modulefields =
     let func_type_of_tdetails x = dump_types x.tdetails in
@@ -136,15 +148,17 @@ let print_wasm_tree m =
     @ List.map dump_memory m.memories
     @ List.map dump_global m.globals
     @ List.map dump_export m.exports
-    @ match m.start with
-      | None -> []
-      | Some x -> [ dump_start x ]
+    @ (match m.start with None -> [] | Some x -> [dump_start x])
+    @ List.map dump_table_segment m.elems
   in
-  let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   (* Version comment *)
   p (spf ";; Wasm Version: %d" (Int32.to_int version)) ;
   (* Module *)
-  p (sexp "module" [String.concat "\n" (List.map (fun x -> "  " ^ x) (prepend_empty_string modulefields))]) ;
+  p
+    (sexp "module"
+       [ String.concat "\n"
+           (List.map (fun x -> "  " ^ x) (prepend_empty_string modulefields))
+       ]) ;
   (* p (sexp "modules" modulefields); *)
   (* Type section *)
   List.iter print_endline !logs
