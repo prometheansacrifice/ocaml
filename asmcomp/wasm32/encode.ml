@@ -12,19 +12,21 @@ open Types
 
 (* Encoding stream *)
 
+let (|>) f g = (fun x -> g (f x))
+
 let print_wasm_tree m =
   let spf = sprintf in
   let logs = ref [] in
   let p l = logs := l :: !logs in
   let sexp op atom_list = spf "(%s)" (String.concat " " (op :: atom_list)) in
+  let value_type = function
+    | I32Type -> "i32"
+    | I64Type -> "i64"
+    | F32Type -> "f32"
+    | F64Type -> "f64"
+  in
+  let elem_type = function AnyFuncType -> "anyfunc" in
   let dump_types ts =
-    let _elem_type = function AnyFuncType -> "anyfunc" in
-    let value_type = function
-      | I32Type -> "i32"
-      | I64Type -> "i64"
-      | F32Type -> "f32"
-      | F64Type -> "f64"
-    in
     let _stack_type = function
       | [] -> "(empty type)"
       | [t] -> value_type t
@@ -39,19 +41,54 @@ let print_wasm_tree m =
     in
     func_type ts
   in
-  let modulefields =
-    List.map (fun x -> dump_types x.tdetails) m.types
-    @ List.map (fun x -> x) []
+  let dump_imports ims =
+    let find_type x =
+      let rec iter result = function
+        | ({tname} : Ast.type_) :: remaining when tname = x -> result
+        | ({tname} : Ast.type_) :: remaining ->
+            iter (Int32.add result 1l) remaining
+        | [] -> result
+      in
+      iter 0l m.types
+    in
+    let dump_import im =
+      let limits {min; max} = match max with
+        | None -> spf "%ld" min
+        | Some x -> spf "%ld %ld" min x
+      in
+      let table_type = function
+        | TableType (lim, t) -> spf "%s %s" (limits lim) (elem_type t)
+      in
+      let memory_type = function MemoryType lim -> limits lim
+      in
+      let global_type = function
+        | GlobalType (t, mut) -> match mut with
+                                 | Immutable -> value_type t
+                                 | Mutable -> spf "(mut %s)" (value_type t)
+      in
+      let dump_import_description = function
+        | FuncImport x -> spf "(func (type %ld))" (find_type x)
+        | TableImport t -> spf "(table %s)" (table_type t)
+        | MemoryImport t -> memory_type t
+        | GlobalImport t -> global_type t
+      in
+      let stringify x = spf "\"%s\"" x in
+      let {module_name; item_name; idesc} = im in
+      spf "(import %s %s %s)" (stringify (Utf8.encode module_name)) (stringify (Utf8.encode item_name)) (dump_import_description idesc)
+    in
+    dump_import ims
   in
+  let modulefields =
+    let func_type_of_tdetails x = dump_types x.tdetails in
+    let type_of_func_type i x = spf "(type $%d %s)" i x in
+    List.mapi (fun i -> func_type_of_tdetails |> type_of_func_type i) m.types
+    @ List.map dump_imports m.imports
+  in
+  let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   (* Version comment *)
   p (spf ";; Wasm Version: %d" (Int32.to_int version)) ;
   (* Module *)
-  p
-    (sexp "modules"
-       [ String.concat "\n"
-           (List.map
-              (fun x -> "  " ^ x)
-              (match modulefields with [] -> [] | x -> "" :: x)) ]) ;
+  p (sexp "module" [String.concat "\n" (List.map (fun x -> "  " ^ x) (prepend_empty_string modulefields))]) ;
   (* p (sexp "modules" modulefields); *)
   (* Type section *)
   List.iter print_endline !logs
