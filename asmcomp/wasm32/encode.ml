@@ -50,29 +50,28 @@ let print_wasm_tree m =
     in
     iter 0l m.types
   in
+  let limits {min; max} = match max with
+    | None -> spf "%ld" min
+    | Some x -> spf "%ld %ld" min x
+  in
+  let table_type = function
+    | TableType (lim, t) -> spf "%s %s" (limits lim) (elem_type t)
+  in
+  let memory_type = function MemoryType lim -> limits lim in
+  let global_type = function
+    | GlobalType (t, mut) -> match mut with
+                             | Immutable -> value_type t
+                             | Mutable -> spf "(mut %s)" (value_type t)
+  in
+  let stringify x = spf "\"%s\"" x in
   let dump_imports ims =
     let dump_import im =
-      let limits {min; max} = match max with
-        | None -> spf "%ld" min
-        | Some x -> spf "%ld %ld" min x
-      in
-      let table_type = function
-        | TableType (lim, t) -> spf "%s %s" (limits lim) (elem_type t)
-      in
-      let memory_type = function MemoryType lim -> limits lim
-      in
-      let global_type = function
-        | GlobalType (t, mut) -> match mut with
-                                 | Immutable -> value_type t
-                                 | Mutable -> spf "(mut %s)" (value_type t)
-      in
       let dump_import_description = function
         | FuncImport x -> spf "(func (type %ld))" (find_type x)
         | TableImport t -> spf "(table %s)" (table_type t)
         | MemoryImport t -> memory_type t
         | GlobalImport t -> global_type t
       in
-      let stringify x = spf "\"%s\"" x in
       let {module_name; item_name; idesc} = im in
       spf "(import %s %s %s)" (stringify (Utf8.encode module_name)) (stringify (Utf8.encode item_name)) (dump_import_description idesc)
     in
@@ -81,12 +80,65 @@ let print_wasm_tree m =
   let dump_func f = 
     spf "(func (type %ld))" (find_type f.ftype)
   in
+  let dump_table t =
+    let {ttype} = t in
+    spf "(table %s)" (table_type ttype)
+  in
+  let dump_memory m =
+    let {mtype} = m in
+    spf "(memory %s)" (memory_type mtype)
+  in
+  let dump_global g =
+    let {gtype; value} = g in
+    spf "(global %s)" (global_type gtype)
+  in
+  let func_index symbol =
+    let rec find_import imports count =
+      match imports with
+      | {item_name} :: remaining when Ast.string_of_name item_name = symbol
+        ->
+         count
+      | _ :: remaining -> find_import remaining (Int32.add count 1l)
+      | [] -> -1l
+    in
+    let result = find_import m.imports 0l in
+    if result = -1l then
+      let rec find_func funcs count =
+        match funcs with
+        | {name; ftype} :: remaining when name = symbol -> count
+        | _ :: remaining -> find_func remaining (Int32.add count 1l)
+        | [] -> failwith ("Could not find: " ^ symbol)
+      in
+      find_func m.funcs (Int32.of_int (List.length m.imports))
+    else result
+  in
+  let dump_export e =
+    let export_description = function
+      | FuncExport symbol ->
+          spf "(func %ld)" (func_index symbol)
+      | TableExport x -> spf "(table %ld)" x
+      | MemoryExport x -> spf "(memory %ld)" x
+      | GlobalExport x -> spf "(global %ld)" x
+    in
+    let {name; edesc} = e in
+    spf "(export %s %s)" (stringify (Utf8.encode name)) (export_description edesc)
+  in
+  let dump_start s =
+    spf "(start %ld)" s
+  in
   let modulefields =
     let func_type_of_tdetails x = dump_types x.tdetails in
     let type_of_func_type i x = spf "(type $%d %s)" i x in
     List.mapi (fun i -> func_type_of_tdetails |> type_of_func_type i) m.types
     @ List.map dump_imports m.imports
     @ List.map dump_func m.funcs
+    @ List.map dump_table m.tables
+    @ List.map dump_memory m.memories
+    @ List.map dump_global m.globals
+    @ List.map dump_export m.exports
+    @ match m.start with
+      | None -> []
+      | Some x -> [ dump_start x ]
   in
   let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   (* Version comment *)
