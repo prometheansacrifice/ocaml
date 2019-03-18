@@ -127,6 +127,7 @@ let print_wasm_tree m =
   let dump_start s = spf "(start %ld)" s in
   let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   let result_type t = spf "(result %s)" (stack_type t) in
+  let memarg {align; offset; _} = spf "offset=%ld align=%d" offset align in
   let rec instr = function
     (* Plain *)
     | Unreachable -> "unreachable"
@@ -144,172 +145,191 @@ let print_wasm_tree m =
     | GetLocal x -> spf "local.get %ld" x
     | SetLocal x -> spf "local.set %ld" x
     | TeeLocal x -> spf "local.tee %ld" x
-    | GetGlobal x -> spf "global.get %ld" x (* TODO Needs attention! *)
-    | SetGlobal x -> spf "global.set %ld" x (* TODO Needs attention! *)
+    | GetGlobal x -> spf "global.get %s" x (* TODO Needs attention! *)
+    | SetGlobal x -> spf "global.set %s" x (* TODO Needs attention! *)
     | Load ({ty= I32Type; sz= None; _} as mo) -> spf "i32.load %s" (memarg mo)
     | Load ({ty= I64Type; sz= None; _} as mo) -> spf "i64.load %s" (memarg mo)
     | Load ({ty= F32Type; sz= None; _} as mo) -> spf "f32.load %s" (memarg mo)
     | Load ({ty= F64Type; sz= None; _} as mo) -> spf "f64.load %s" (memarg mo)
-    | Load ({ty= I32Type; sz= Some (Mem8, SX); _} as mo) -> spf "i32.load8_s %s" (memarg mo)
-    | Load ({ty= I32Type; sz= Some (Mem8, ZX); _} as mo) -> spf "i32.load8_u %s" (memarg mo)
-    | Load ({ty= I32Type; sz= Some (Mem16, SX); _} as mo) -> spf "i32.load16_s %s" (memarg mo)
-    | Load ({ty= I32Type; sz= Some (Mem16, ZX); _} as mo) -> spf "i32.load16_u %s" (memarg mo)
+    | Load ({ty= I32Type; sz= Some (Mem8, SX); _} as mo) ->
+        spf "i32.load8_s %s" (memarg mo)
+    | Load ({ty= I32Type; sz= Some (Mem8, ZX); _} as mo) ->
+        spf "i32.load8_u %s" (memarg mo)
+    | Load ({ty= I32Type; sz= Some (Mem16, SX); _} as mo) ->
+        spf "i32.load16_s %s" (memarg mo)
+    | Load ({ty= I32Type; sz= Some (Mem16, ZX); _} as mo) ->
+        spf "i32.load16_u %s" (memarg mo)
     | Load {ty= I32Type; sz= Some (Mem32, _); _} -> assert false
-    | Load ({ty= I64Type; sz= Some (Mem8, SX); _} as mo) -> spf "i64.load8_s %s" (memarg mo)
-    | Load ({ty= I64Type; sz= Some (Mem8, ZX); _} as mo) -> spf "i64.load8_u %s" (memarg mo)
-    | Load ({ty= I64Type; sz= Some (Mem16, SX); _} as mo) -> spf "i64.load16_s %s" (memarg mo)
-    | Load ({ty= I64Type; sz= Some (Mem16, ZX); _} as mo) -> spf "i64.load16_u %s" (memarg mo)
-    | Load ({ty= I64Type; sz= Some (Mem32, SX); _} as mo) -> spf "i64.load32_s %s" (memarg mo)
-    | Load ({ty= I64Type; sz= Some (Mem32, ZX); _} as mo) -> spf "i64.load32_u %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem8, SX); _} as mo) ->
+        spf "i64.load8_s %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem8, ZX); _} as mo) ->
+        spf "i64.load8_u %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem16, SX); _} as mo) ->
+        spf "i64.load16_s %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem16, ZX); _} as mo) ->
+        spf "i64.load16_u %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem32, SX); _} as mo) ->
+        spf "i64.load32_s %s" (memarg mo)
+    | Load ({ty= I64Type; sz= Some (Mem32, ZX); _} as mo) ->
+        spf "i64.load32_u %s" (memarg mo)
     | Load {ty= F32Type | F64Type; sz= Some _; _} -> assert false
-    | Store ({ty= I32Type; sz= None; _} as mo) -> spf "i32.store %s" (memarg mo)
-    | Store ({ty= I64Type; sz= None; _} as mo) -> spf "i64.store %s" (memarg mo)
-    | Store ({ty= F32Type; sz= None; _} as mo) -> spf "f32.store %s" (memarg mo)
-    | Store ({ty= F64Type; sz= None; _} as mo) -> spf "f64.store %s" (memarg mo)
-    | Store ({ty= I32Type; sz= Some Mem8; _} as mo) -> spf "i32.store8 %s" (memarg mo)
-    | Store ({ty= I32Type; sz= Some Mem16; _} as mo) -> spf "i32.store16 %s" (memarg mo)
+    | Store ({ty= I32Type; sz= None; _} as mo) ->
+        spf "i32.store %s" (memarg mo)
+    | Store ({ty= I64Type; sz= None; _} as mo) ->
+        spf "i64.store %s" (memarg mo)
+    | Store ({ty= F32Type; sz= None; _} as mo) ->
+        spf "f32.store %s" (memarg mo)
+    | Store ({ty= F64Type; sz= None; _} as mo) ->
+        spf "f64.store %s" (memarg mo)
+    | Store ({ty= I32Type; sz= Some Mem8; _} as mo) ->
+        spf "i32.store8 %s" (memarg mo)
+    | Store ({ty= I32Type; sz= Some Mem16; _} as mo) ->
+        spf "i32.store16 %s" (memarg mo)
     | Store {ty= I32Type; sz= Some Mem32; _} -> assert false
-    | Store ({ty= I64Type; sz= Some Mem8; _} as mo) -> spf "i64.store8 %s" (memarg mo)
-    | Store ({ty= I64Type; sz= Some Mem16; _} as mo) -> spf "i64.store16 %s" (memarg mo)
-    | Store ({ty= I64Type; sz= Some Mem32; _} as mo) -> spf "i64.store32 %s" (memarg mo)
+    | Store ({ty= I64Type; sz= Some Mem8; _} as mo) ->
+        spf "i64.store8 %s" (memarg mo)
+    | Store ({ty= I64Type; sz= Some Mem16; _} as mo) ->
+        spf "i64.store16 %s" (memarg mo)
+    | Store ({ty= I64Type; sz= Some Mem32; _} as mo) ->
+        spf "i64.store32 %s" (memarg mo)
     | Store {ty= F32Type | F64Type; sz= Some _; _} -> assert false
     | CurrentMemory -> "memory.size"
     | GrowMemory -> "memory.grow"
-      | Const (I32 c) -> op 0x41 ; vs32 c
-      | Const (I64 c) -> op 0x42 ; vs64 c
-      | Const (F32 c) -> op 0x43 ; f32 c
-      | Const (F64 c) -> op 0x44 ; f64 c
-      | Test (I32 I32Op.Eqz) -> op 0x45
-      | Test (I64 I64Op.Eqz) -> op 0x50
-      | Test (F32 _) -> assert false
-      | Test (F64 _) -> assert false
-      | Compare (I32 I32Op.Eq) -> op 0x46
-      | Compare (I32 I32Op.Ne) -> op 0x47
-      | Compare (I32 I32Op.LtS) -> op 0x48
-      | Compare (I32 I32Op.LtU) -> op 0x49
-      | Compare (I32 I32Op.GtS) -> op 0x4a
-      | Compare (I32 I32Op.GtU) -> op 0x4b
-      | Compare (I32 I32Op.LeS) -> op 0x4c
-      | Compare (I32 I32Op.LeU) -> op 0x4d
-      | Compare (I32 I32Op.GeS) -> op 0x4e
-      | Compare (I32 I32Op.GeU) -> op 0x4f
-      | Compare (I64 I64Op.Eq) -> op 0x51
-      | Compare (I64 I64Op.Ne) -> op 0x52
-      | Compare (I64 I64Op.LtS) -> op 0x53
-      | Compare (I64 I64Op.LtU) -> op 0x54
-      | Compare (I64 I64Op.GtS) -> op 0x55
-      | Compare (I64 I64Op.GtU) -> op 0x56
-      | Compare (I64 I64Op.LeS) -> op 0x57
-      | Compare (I64 I64Op.LeU) -> op 0x58
-      | Compare (I64 I64Op.GeS) -> op 0x59
-      | Compare (I64 I64Op.GeU) -> op 0x5a
-      | Compare (F32 F32Op.Eq) -> op 0x5b
-      | Compare (F32 F32Op.Ne) -> op 0x5c
-      | Compare (F32 F32Op.Lt) -> op 0x5d
-      | Compare (F32 F32Op.Gt) -> op 0x5e
-      | Compare (F32 F32Op.Le) -> op 0x5f
-      | Compare (F32 F32Op.Ge) -> op 0x60
-      | Compare (F64 F64Op.Eq) -> op 0x61
-      | Compare (F64 F64Op.Ne) -> op 0x62
-      | Compare (F64 F64Op.Lt) -> op 0x63
-      | Compare (F64 F64Op.Gt) -> op 0x64
-      | Compare (F64 F64Op.Le) -> op 0x65
-      | Compare (F64 F64Op.Ge) -> op 0x66
-      | Unary (I32 I32Op.Clz) -> op 0x67
-      | Unary (I32 I32Op.Ctz) -> op 0x68
-      | Unary (I32 I32Op.Popcnt) -> op 0x69
-      | Unary (I64 I64Op.Clz) -> op 0x79
-      | Unary (I64 I64Op.Ctz) -> op 0x7a
-      | Unary (I64 I64Op.Popcnt) -> op 0x7b
-      | Unary (F32 F32Op.Abs) -> op 0x8b
-      | Unary (F32 F32Op.Neg) -> op 0x8c
-      | Unary (F32 F32Op.Ceil) -> op 0x8d
-      | Unary (F32 F32Op.Floor) -> op 0x8e
-      | Unary (F32 F32Op.Trunc) -> op 0x8f
-      | Unary (F32 F32Op.Nearest) -> op 0x90
-      | Unary (F32 F32Op.Sqrt) -> op 0x91
-      | Unary (F64 F64Op.Abs) -> op 0x99
-      | Unary (F64 F64Op.Neg) -> op 0x9a
-      | Unary (F64 F64Op.Ceil) -> op 0x9b
-      | Unary (F64 F64Op.Floor) -> op 0x9c
-      | Unary (F64 F64Op.Trunc) -> op 0x9d
-      | Unary (F64 F64Op.Nearest) -> op 0x9e
-      | Unary (F64 F64Op.Sqrt) -> op 0x9f
-      | Binary (I32 I32Op.Add) -> "i32.add"
-      | Binary (I32 I32Op.Sub) -> "i32.sub"
-      | Binary (I32 I32Op.Mul) -> "i32.mul"
-      | Binary (I32 I32Op.DivS) -> "i32.div_s"
-      | Binary (I32 I32Op.DivU) -> "i32.div_u"
-      | Binary (I32 I32Op.RemS) -> "i32.rem_s"
-      | Binary (I32 I32Op.RemU) -> "i32.rem_u"
-      | Binary (I32 I32Op.And) -> "i32.and"
-      | Binary (I32 I32Op.Or) -> "i32.or"
-      | Binary (I32 I32Op.Xor) -> "i32.xor"
-      | Binary (I32 I32Op.Shl) -> "i32.shl"
-      | Binary (I32 I32Op.ShrS) -> "i32.shr_s"
-      | Binary (I32 I32Op.ShrU) -> "i32.shr_u"
-      | Binary (I32 I32Op.Rotl) -> "i32.rotl"
-      | Binary (I32 I32Op.Rotr) -> "i32.rotr"
-      | Binary (I64 I64Op.Add) -> "i64.add"
-      | Binary (I64 I64Op.Sub) -> "i64.sub"
-      | Binary (I64 I64Op.Mul) -> "i64.mul"
-      | Binary (I64 I64Op.DivS) -> "i64.div_s"
-      | Binary (I64 I64Op.DivU) -> "i64.div_u"
-      | Binary (I64 I64Op.RemS) -> "i64.rem_s"
-      | Binary (I64 I64Op.RemU) -> "i64.rem_u"
-      | Binary (I64 I64Op.And) -> "i64.and"
-      | Binary (I64 I64Op.Or) -> "i64.or"
-      | Binary (I64 I64Op.Xor) -> "i64.xor"
-      | Binary (I64 I64Op.Shl) -> "i64.shl"
-      | Binary (I64 I64Op.ShrS) -> "i64.shr_s"
-      | Binary (I64 I64Op.ShrU) -> "i64.shr_u"
-      | Binary (I64 I64Op.Rotl) -> "i64.rotl"
-      | Binary (I64 I64Op.Rotr) -> "i64.rotr"
-      | Binary (F32 F32Op.Add) -> "f32.add"
-      | Binary (F32 F32Op.Sub) -> "f32.sub"
-      | Binary (F32 F32Op.Mul) -> "f32.mul"
-      | Binary (F32 F32Op.Div) -> "f32.div"
-      | Binary (F32 F32Op.Min) -> "f32.min"
-      | Binary (F32 F32Op.Max) -> "f32.max"
-      | Binary (F32 F32Op.CopySign) -> "f32.copysign"
-      | Binary (F64 F64Op.Add) -> "f64.add"
-      | Binary (F64 F64Op.Sub) -> "f64.sub"
-      | Binary (F64 F64Op.Mul) -> "f64.mul"
-      | Binary (F64 F64Op.Div) -> "f64.div"
-      | Binary (F64 F64Op.Min) -> "f64.min"
-      | Binary (F64 F64Op.Max) -> "f64.max"
-      | Binary (F64 F64Op.CopySign) -> "f64.copysign"
-      | Convert (I32 I32Op.ExtendSI32) -> assert false
-      | Convert (I32 I32Op.ExtendUI32) -> assert false
-      | Convert (I32 I32Op.WrapI64) -> "i32.wrap_i64"
-      | Convert (I32 I32Op.TruncSF32) -> "i32.trunc_f32_s"
-      | Convert (I32 I32Op.TruncUF32) -> "i32.trunc_f32_u"
-      | Convert (I32 I32Op.TruncSF64) -> "i32.trunc_f64_s"
-      | Convert (I32 I32Op.TruncUF64) -> "i32.trunc_f64_u"
-      | Convert (I32 I32Op.ReinterpretFloat) -> "i32.reinterpret_f32"
-      | Convert (I64 I64Op.ExtendSI32) -> "i64.trunc_i32_s"
-      | Convert (I64 I64Op.ExtendUI32) -> "i64.trunc_i32_u"
-      | Convert (I64 I64Op.WrapI64) -> assert false
-      | Convert (I64 I64Op.TruncSF32) -> "i64.trunc_f32_s"
-      | Convert (I64 I64Op.TruncUF32) -> "i64.trunc_f32_u"
-      | Convert (I64 I64Op.TruncSF64) -> "i64.trunc_f64_s"
-      | Convert (I64 I64Op.TruncUF64) -> "i64.trunc_f64_u"
-      | Convert (I64 I64Op.ReinterpretFloat) -> "i64.reinterpret_f32"
-      | Convert (F32 F32Op.ConvertSI32) -> "f32.convert_i32_s"
-      | Convert (F32 F32Op.ConvertUI32) -> "f32.convert_i32_u"
-      | Convert (F32 F32Op.ConvertSI64) -> "f32.convert_i64_s"
-      | Convert (F32 F32Op.ConvertUI64) -> "f32.convert_i64_u"
-      | Convert (F32 F32Op.PromoteF32) -> assert false
-      | Convert (F32 F32Op.DemoteF64) -> "f32.demote_f64"
-      | Convert (F32 F32Op.ReinterpretInt) -> "f32.reinterpret_i32"
-      | Convert (F64 F64Op.ConvertSI32) -> "f64.convert_i32_s"
-      | Convert (F64 F64Op.ConvertUI32) -> "f64.convert_i32_u"
-      | Convert (F64 F64Op.ConvertSI64) -> "f64.convert_i64_s"
-      | Convert (F64 F64Op.ConvertUI64) -> "f64.convert_i64_u"
-      | Convert (F64 F64Op.PromoteF32) -> "f64.promote_f32"
-      | Convert (F64 F64Op.DemoteF64) -> assert false
-      | Convert (F64 F64Op.ReinterpretInt) -> "f64.reinterpret_i64"
-      (* Block *)
+    | Const (I32 c) -> spf "i32.const %ld" c
+    | Const (I64 c) -> spf "i64.const %Ld" c
+    | Const (F32 c) -> spf "f32.const %s" (F32.to_string c)
+    | Const (F64 c) -> spf "f64.const %s" (F64.to_string c)
+    | Test (I32 I32Op.Eqz) -> "i32.eqz"
+    | Test (I64 I64Op.Eqz) -> "i64.eqz"
+    | Test (F32 _) -> assert false
+    | Test (F64 _) -> assert false
+    | Compare (I32 I32Op.Eq) -> "i32.eq"
+    | Compare (I32 I32Op.Ne) -> "i32.ne"
+    | Compare (I32 I32Op.LtS) -> "i32.lt_s"
+    | Compare (I32 I32Op.LtU) -> "i32.lt_u"
+    | Compare (I32 I32Op.GtS) -> "i32.gt_s"
+    | Compare (I32 I32Op.GtU) -> "i32.gt_u"
+    | Compare (I32 I32Op.LeS) -> "i32.le_s"
+    | Compare (I32 I32Op.LeU) -> "i32.le_u"
+    | Compare (I32 I32Op.GeS) -> "i32.ge_s"
+    | Compare (I32 I32Op.GeU) -> "i32.ge_u"
+    | Compare (I64 I64Op.Eq) -> "i64.eq"
+    | Compare (I64 I64Op.Ne) -> "i64.ne"
+    | Compare (I64 I64Op.LtS) -> "i64.lt_s"
+    | Compare (I64 I64Op.LtU) -> "i64.lt_u"
+    | Compare (I64 I64Op.GtS) -> "i64.gt_s"
+    | Compare (I64 I64Op.GtU) -> "i64.gt_u"
+    | Compare (I64 I64Op.LeS) -> "i64.le_s"
+    | Compare (I64 I64Op.LeU) -> "i64.le_u"
+    | Compare (I64 I64Op.GeS) -> "i64.ge_s"
+    | Compare (I64 I64Op.GeU) -> "i64.ge_u"
+    | Compare (F32 F32Op.Eq) -> "f32.eq"
+    | Compare (F32 F32Op.Ne) -> "f32.ne"
+    | Compare (F32 F32Op.Lt) -> "f32.lt"
+    | Compare (F32 F32Op.Gt) -> "f32.gt"
+    | Compare (F32 F32Op.Le) -> "f32.le"
+    | Compare (F32 F32Op.Ge) -> "f32.ge"
+    | Compare (F64 F64Op.Eq) -> "f64.eq"
+    | Compare (F64 F64Op.Ne) -> "f64.ne"
+    | Compare (F64 F64Op.Lt) -> "f64.lt"
+    | Compare (F64 F64Op.Gt) -> "f64.gt"
+    | Compare (F64 F64Op.Le) -> "f64.le"
+    | Compare (F64 F64Op.Ge) -> "f64.ge"
+    | Unary (I32 I32Op.Clz) -> "i32.clz"
+    | Unary (I32 I32Op.Ctz) -> "i32.ctz"
+    | Unary (I32 I32Op.Popcnt) -> "i32.popcnt"
+    | Unary (I64 I64Op.Clz) -> "i64.clz"
+    | Unary (I64 I64Op.Ctz) -> "i64.ctz"
+    | Unary (I64 I64Op.Popcnt) -> "i64.popcnt"
+    | Unary (F32 F32Op.Abs) -> "f32.abs"
+    | Unary (F32 F32Op.Neg) -> "f32.neg"
+    | Unary (F32 F32Op.Ceil) -> "f32.ceil"
+    | Unary (F32 F32Op.Floor) -> "f32.floor"
+    | Unary (F32 F32Op.Trunc) -> "f32.trunc"
+    | Unary (F32 F32Op.Nearest) -> "f32.nearest"
+    | Unary (F32 F32Op.Sqrt) -> "f32.sqrt"
+    | Unary (F64 F64Op.Abs) -> "f64.abs"
+    | Unary (F64 F64Op.Neg) -> "f64.neg"
+    | Unary (F64 F64Op.Ceil) -> "f64.ceil"
+    | Unary (F64 F64Op.Floor) -> "f64.floor"
+    | Unary (F64 F64Op.Trunc) -> "f64.trunc"
+    | Unary (F64 F64Op.Nearest) -> "f64.nearest"
+    | Unary (F64 F64Op.Sqrt) -> "f64.sqrt"
+    | Binary (I32 I32Op.Add) -> "i32.add"
+    | Binary (I32 I32Op.Sub) -> "i32.sub"
+    | Binary (I32 I32Op.Mul) -> "i32.mul"
+    | Binary (I32 I32Op.DivS) -> "i32.div_s"
+    | Binary (I32 I32Op.DivU) -> "i32.div_u"
+    | Binary (I32 I32Op.RemS) -> "i32.rem_s"
+    | Binary (I32 I32Op.RemU) -> "i32.rem_u"
+    | Binary (I32 I32Op.And) -> "i32.and"
+    | Binary (I32 I32Op.Or) -> "i32.or"
+    | Binary (I32 I32Op.Xor) -> "i32.xor"
+    | Binary (I32 I32Op.Shl) -> "i32.shl"
+    | Binary (I32 I32Op.ShrS) -> "i32.shr_s"
+    | Binary (I32 I32Op.ShrU) -> "i32.shr_u"
+    | Binary (I32 I32Op.Rotl) -> "i32.rotl"
+    | Binary (I32 I32Op.Rotr) -> "i32.rotr"
+    | Binary (I64 I64Op.Add) -> "i64.add"
+    | Binary (I64 I64Op.Sub) -> "i64.sub"
+    | Binary (I64 I64Op.Mul) -> "i64.mul"
+    | Binary (I64 I64Op.DivS) -> "i64.div_s"
+    | Binary (I64 I64Op.DivU) -> "i64.div_u"
+    | Binary (I64 I64Op.RemS) -> "i64.rem_s"
+    | Binary (I64 I64Op.RemU) -> "i64.rem_u"
+    | Binary (I64 I64Op.And) -> "i64.and"
+    | Binary (I64 I64Op.Or) -> "i64.or"
+    | Binary (I64 I64Op.Xor) -> "i64.xor"
+    | Binary (I64 I64Op.Shl) -> "i64.shl"
+    | Binary (I64 I64Op.ShrS) -> "i64.shr_s"
+    | Binary (I64 I64Op.ShrU) -> "i64.shr_u"
+    | Binary (I64 I64Op.Rotl) -> "i64.rotl"
+    | Binary (I64 I64Op.Rotr) -> "i64.rotr"
+    | Binary (F32 F32Op.Add) -> "f32.add"
+    | Binary (F32 F32Op.Sub) -> "f32.sub"
+    | Binary (F32 F32Op.Mul) -> "f32.mul"
+    | Binary (F32 F32Op.Div) -> "f32.div"
+    | Binary (F32 F32Op.Min) -> "f32.min"
+    | Binary (F32 F32Op.Max) -> "f32.max"
+    | Binary (F32 F32Op.CopySign) -> "f32.copysign"
+    | Binary (F64 F64Op.Add) -> "f64.add"
+    | Binary (F64 F64Op.Sub) -> "f64.sub"
+    | Binary (F64 F64Op.Mul) -> "f64.mul"
+    | Binary (F64 F64Op.Div) -> "f64.div"
+    | Binary (F64 F64Op.Min) -> "f64.min"
+    | Binary (F64 F64Op.Max) -> "f64.max"
+    | Binary (F64 F64Op.CopySign) -> "f64.copysign"
+    | Convert (I32 I32Op.ExtendSI32) -> assert false
+    | Convert (I32 I32Op.ExtendUI32) -> assert false
+    | Convert (I32 I32Op.WrapI64) -> "i32.wrap_i64"
+    | Convert (I32 I32Op.TruncSF32) -> "i32.trunc_f32_s"
+    | Convert (I32 I32Op.TruncUF32) -> "i32.trunc_f32_u"
+    | Convert (I32 I32Op.TruncSF64) -> "i32.trunc_f64_s"
+    | Convert (I32 I32Op.TruncUF64) -> "i32.trunc_f64_u"
+    | Convert (I32 I32Op.ReinterpretFloat) -> "i32.reinterpret_f32"
+    | Convert (I64 I64Op.ExtendSI32) -> "i64.trunc_i32_s"
+    | Convert (I64 I64Op.ExtendUI32) -> "i64.trunc_i32_u"
+    | Convert (I64 I64Op.WrapI64) -> assert false
+    | Convert (I64 I64Op.TruncSF32) -> "i64.trunc_f32_s"
+    | Convert (I64 I64Op.TruncUF32) -> "i64.trunc_f32_u"
+    | Convert (I64 I64Op.TruncSF64) -> "i64.trunc_f64_s"
+    | Convert (I64 I64Op.TruncUF64) -> "i64.trunc_f64_u"
+    | Convert (I64 I64Op.ReinterpretFloat) -> "i64.reinterpret_f32"
+    | Convert (F32 F32Op.ConvertSI32) -> "f32.convert_i32_s"
+    | Convert (F32 F32Op.ConvertUI32) -> "f32.convert_i32_u"
+    | Convert (F32 F32Op.ConvertSI64) -> "f32.convert_i64_s"
+    | Convert (F32 F32Op.ConvertUI64) -> "f32.convert_i64_u"
+    | Convert (F32 F32Op.PromoteF32) -> assert false
+    | Convert (F32 F32Op.DemoteF64) -> "f32.demote_f64"
+    | Convert (F32 F32Op.ReinterpretInt) -> "f32.reinterpret_i32"
+    | Convert (F64 F64Op.ConvertSI32) -> "f64.convert_i32_s"
+    | Convert (F64 F64Op.ConvertUI32) -> "f64.convert_i32_u"
+    | Convert (F64 F64Op.ConvertSI64) -> "f64.convert_i64_s"
+    | Convert (F64 F64Op.ConvertUI64) -> "f64.convert_i64_u"
+    | Convert (F64 F64Op.PromoteF32) -> "f64.promote_f32"
+    | Convert (F64 F64Op.DemoteF64) -> assert false
+    | Convert (F64 F64Op.ReinterpretInt) -> "f64.reinterpret_i64"
+    (* Block *)
     | Block (ts, es) ->
         spf "block \n%s\n%s\n end" (result_type ts)
           (String.concat "\n"
@@ -338,6 +358,26 @@ let print_wasm_tree m =
                (prepend_empty_string (const offset)))))
       (List.map (spf "%ld") init)
   in
+  let dump_data seg =
+    let {index; offset; init} = seg in
+    sexp
+      (spf "data %ld (offset %s)" index
+         (String.concat "\n"
+            (List.map
+               (fun s -> spf "            %s" s)
+               (prepend_empty_string (const offset)))))
+      (List.map
+         (function
+           | String s -> s
+           | Int32 i -> Int32.to_string i
+           | Nativeint i -> Nativeint.to_string i
+           | Int16 i -> string_of_int i
+           | Int8 i -> string_of_int i
+           | Float32 f -> F32.to_string f
+           | Symbol s -> s
+           | FunctionLoc s -> s)
+         init.detail)
+  in
   let modulefields =
     let func_type_of_tdetails x = dump_types x.tdetails in
     let type_of_func_type i x = spf "(type $%d %s)" i x in
@@ -350,6 +390,7 @@ let print_wasm_tree m =
     @ List.map dump_export m.exports
     @ (match m.start with None -> [] | Some x -> [dump_start x])
     @ List.map dump_table_segment m.elems
+    @ List.map dump_data m.data
   in
   (* Version comment *)
   p (spf ";; Wasm Version: %d" (Int32.to_int version)) ;
