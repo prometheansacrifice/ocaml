@@ -80,7 +80,6 @@ let print_wasm_tree m =
     in
     dump_import ims
   in
-  let dump_func f = spf "(func (type %ld))" (find_type f.ftype) in
   let dump_table t =
     let {ttype} = t in
     spf "(table %s)" (table_type ttype)
@@ -344,7 +343,23 @@ let print_wasm_tree m =
              (List.map (fun x -> spf "(%s)" x) (List.map instr es1)))
           (String.concat "\n"
              (List.map (fun x -> spf "(%s)" x) (List.map instr es2)))
-    | _ -> "TODO"
+    | FuncSymbol symbol ->
+       let f_index _s = 0 in
+       spf "i32.const %d" (f_index symbol)
+    | DataSymbol symbol->
+       let d_index _d = 0 in
+       spf "i32.const %d" (d_index symbol)
+  in
+  let dump_func f =
+    let {locals; body; no_of_args; _} = f in
+    let local l =
+      let (_, v) = l in
+      spf "(local %s)" (value_type v)
+    in
+    spf "(func (type %ld) %s %s)" (find_type f.ftype) (String.concat "\n"
+         (List.map local locals))
+      (String.concat "\n"
+         (List.map (fun x -> spf "(%s)" x) (List.map instr body)))
   in
   let expr e = spf "(%s)" (instr e) in
   let const c = List.map expr c in
