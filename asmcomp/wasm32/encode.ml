@@ -13,8 +13,10 @@ open Types
 (* Encoding stream *)
 
 let ( |> ) f g x = g (f x)
+let ($) f x = f x
 
 let print_wasm_tree m =
+  let join str_l = String.concat " " str_l in
   let spf = sprintf in
   let logs = ref [] in
   let p l = logs := l :: !logs in
@@ -88,11 +90,7 @@ let print_wasm_tree m =
     let {mtype} = m in
     spf "(memory %s)" (memory_type mtype)
   in
-  let dump_global g =
-    let {gtype; value} = g in
-    spf "(global %s)" (global_type gtype)
-  in
-  let func_index symbol =
+ let func_index symbol =
     let rec find_import imports count =
       match imports with
       | {item_name} :: remaining when Ast.string_of_name item_name = symbol ->
@@ -126,7 +124,7 @@ let print_wasm_tree m =
   let dump_start s = spf "(start %ld)" s in
   let prepend_empty_string x = match x with [] -> [] | l -> "" :: l in
   let result_type t = spf "(result %s)" (stack_type t) in
-  let memarg {align; offset; _} = spf "offset=%ld align=%d" offset align in
+  let memarg {align; offset; _} = spf "offset=%ld %s" offset (if align = 0 then "" else spf "align=%d" align) in
   let rec instr = function
     (* Plain *)
     | Unreachable -> "unreachable"
@@ -350,6 +348,11 @@ let print_wasm_tree m =
        let d_index _d = 0 in
        spf "i32.const %d" (d_index symbol)
   in
+  let expr e = spf "(%s)" (instr e) in
+  let dump_global g =
+    let {gtype; value} = g in
+    spf "(global %s %s)" (global_type gtype) (join (List.map expr value))
+  in
   let dump_func f =
     let {locals; body; no_of_args; _} = f in
     let local l =
@@ -361,7 +364,6 @@ let print_wasm_tree m =
       (String.concat "\n"
          (List.map (fun x -> spf "(%s)" x) (List.map instr body)))
   in
-  let expr e = spf "(%s)" (instr e) in
   let const c = List.map expr c in
   let dump_table_segment seg =
     let {index; offset; init} = seg in
@@ -381,7 +383,7 @@ let print_wasm_tree m =
             (List.map
                (fun s -> spf "            %s" s)
                (prepend_empty_string (const offset)))))
-      (List.map
+      (List.map (fun x -> spf "\"%s\"" x) (List.map
          (function
            | String s -> s
            | Int32 i -> Int32.to_string i
@@ -391,7 +393,8 @@ let print_wasm_tree m =
            | Float32 f -> F32.to_string f
            | Symbol s -> s
            | FunctionLoc s -> s)
-         init.detail)
+           init.detail))
+    
   in
   let modulefields =
     let func_type_of_tdetails x = dump_types x.tdetails in
