@@ -383,7 +383,7 @@ let print_wasm_tree m =
             (List.map
                (fun s -> spf "            %s" s)
                (prepend_empty_string (const offset)))))
-      (List.map (fun x -> spf "\"%s\"" x) (List.map
+      [(spf "\"%s\"" (String.concat "" (List.map
          (function
            | String s -> s
            | Int32 i -> Int32.to_string i
@@ -393,7 +393,7 @@ let print_wasm_tree m =
            | Float32 f -> F32.to_string f
            | Symbol s -> s
            | FunctionLoc s -> s)
-           init.detail))
+           init.detail)))]
     
   in
   let modulefields =
